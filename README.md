@@ -73,6 +73,31 @@ A busca semântica usa ChromaDB + embeddings (default: `all-MiniLM-L6-v2` via ON
 python embeddings.py --model paraphrase-multilingual-MiniLM-L12-v2
 ```
 
+### Sincronizar com Google Drive
+
+```bash
+# Sincronização completa
+make sync-drive FOLDER_ID=<id-da-pasta-no-drive>
+
+# Com subpasta personalizada
+make sync-drive FOLDER_ID=<id> OUT=kb/documentos-drive
+
+# Sincronização incremental (apenas arquivos novos/modificados)
+make sync-drive FOLDER_ID=<id> INCREMENTAL=1
+
+# Via CLI direto
+python ingest_drive.py --folder-id <id> --out kb/drive-import --incremental
+```
+
+**Pré-requisitos:**
+1. Criar projeto no Google Cloud Console e habilitar a Google Drive API
+2. Gerar credenciais OAuth 2.0 e salvar como `credentials.json` na raiz do projeto
+3. Na primeira execução, um browser abrirá para autorizar o acesso (token salvo em `token.json`)
+
+**Formatos suportados:**
+- Download direto: PDF, DOCX, PPTX, CSV, TXT, MD
+- Exportação automática: Google Sheets → CSV, Google Docs → DOCX, Google Slides → PPTX
+
 ### Rodar os testes
 
 ```bash
@@ -92,8 +117,9 @@ projeto-kb/
 ├── server.py              # MCP server (search, semantic_search, fetch)
 ├── embeddings.py          # índice semântico (ChromaDB + embeddings)
 ├── ingest.py              # ingestão local
+├── ingest_drive.py        # integração Google Drive
 ├── validate_okf.py        # validador OKF
-├── tests/                 # testes pytest (24 testes)
+├── tests/                 # testes pytest
 ├── requirements.txt
 └── Makefile
 ```
@@ -118,11 +144,11 @@ timestamp: 2026-06-17T12:00:00Z
 As etapas abaixo requerem ação do Enzo:
 
 ### Google Drive
-A ingestão opera sobre **pasta local**. Para conectar ao Drive:
+`ingest_drive.py` está implementado. Para ativar:
 1. Criar projeto no Google Cloud Console.
 2. Habilitar a Drive API.
-3. Gerar credenciais OAuth 2.0 e salvar como `credentials.json`.
-4. Implementar `ingest_drive.py` usando `google-api-python-client`.
+3. Gerar credenciais OAuth 2.0 e salvar como `credentials.json` na raiz.
+4. Executar `make sync-drive FOLDER_ID=<id>` — o browser abrirá para autorizar.
 
 ### Deploy do MCP server
 O server hoje roda localmente em `127.0.0.1:8000`. Para expor na internet:
