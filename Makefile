@@ -1,4 +1,4 @@
-.PHONY: install serve validate ingest test
+.PHONY: install serve validate ingest index index-update test
 
 install:
 	pip install -r requirements.txt
@@ -11,6 +11,12 @@ validate:
 
 ingest:
 	python ingest.py --src $(SRC) --out $(OUT) $(if $(TYPE),--type $(TYPE),)
+
+index:
+	python embeddings.py
+
+index-update:
+	python embeddings.py --update
 
 test:
 	pytest tests/ -v

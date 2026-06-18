@@ -1,20 +1,44 @@
-# server.py — MCP server de contexto sobre um bundle OKF (search + fetch)
-# Navegacao-primeiro: sem embeddings. Le markdown + frontmatter direto do disco.
+# server.py — MCP server de contexto sobre um bundle OKF
 from pathlib import Path
+import logging
 import re
-import frontmatter            # pip install python-frontmatter
-from fastmcp import FastMCP   # pip install fastmcp
+import frontmatter
+from fastmcp import FastMCP
 
-KB = Path(__file__).parent / "kb"   # raiz do bundle OKF
+KB = Path(__file__).parent / "kb"
+
+log = logging.getLogger("projeto-kb")
 
 mcp = FastMCP(
     name="projeto-kb",
     instructions=(
         "Base de conhecimento compartilhada em formato OKF (markdown + frontmatter). "
-        "Use 'search' para localizar conceitos e 'fetch' para ler um conceito pelo id "
+        "Use 'search' para busca por palavra-chave, 'semantic_search' para busca por "
+        "similaridade semântica, e 'fetch' para ler um conceito pelo id "
         "(caminho relativo sem .md). Comece pelos index.md e siga os outgoing_links."
     ),
 )
+
+_semantic_index = None
+
+
+def _get_semantic_index():
+    """Lazy-load do índice semântico (carrega apenas na primeira chamada)."""
+    global _semantic_index
+    if _semantic_index is None:
+        try:
+            from embeddings import SemanticIndex, CHROMA_DIR
+            chroma_path = CHROMA_DIR
+            if chroma_path.exists():
+                _semantic_index = SemanticIndex(kb_root=KB)
+                if _semantic_index.count() == 0:
+                    _semantic_index = None
+                    log.warning("Índice semântico vazio — use 'make index' para indexar.")
+            else:
+                log.info("Índice semântico não encontrado — semantic_search indisponível.")
+        except ImportError:
+            log.info("chromadb/sentence-transformers não instalados — semantic_search indisponível.")
+    return _semantic_index
 
 def _id(path: Path) -> str:
     return str(path.relative_to(KB)).replace("\\", "/").replace(".md", "")
@@ -65,7 +89,37 @@ def _fetch_impl(id: str) -> dict:
             "body": f"Sem conceito '{id}'.", "outgoing_links": []}
 
 
-# Wrappers registrados como tools MCP (assinatura contratual: secao 5.2 do handoff).
+def _semantic_search_impl(query: str, limit: int = 5) -> list[dict]:
+    """Busca semântica com fallback para keyword search."""
+    from embeddings import SCORE_THRESHOLD
+
+    idx = _get_semantic_index()
+    if idx is None:
+        return _search_impl(query, limit)
+
+    hits = idx.query(query, n_results=limit)
+
+    if not hits or hits[0]["score"] < SCORE_THRESHOLD:
+        keyword_hits = _search_impl(query, limit)
+        seen = {h["id"] for h in hits}
+        for kh in keyword_hits:
+            if kh["id"] not in seen and kh["id"]:
+                hits.append({**kh, "score": 0.0})
+                seen.add(kh["id"])
+
+    result = hits[:limit]
+    return result or [
+        {
+            "id": "",
+            "type": "",
+            "title": "Nada encontrado",
+            "description": f"Sem resultado para '{query}'.",
+            "score": 0.0,
+        }
+    ]
+
+
+# Wrappers registrados como tools MCP.
 
 @mcp.tool
 def search(query: str, limit: int = 8) -> list[dict]:
@@ -73,6 +127,15 @@ def search(query: str, limit: int = 8) -> list[dict]:
     Retorna {id, type, title, description}. Ids terminados em 'index' sao
     paginas-indice (bons pontos de entrada para navegar)."""
     return _search_impl(query, limit)
+
+@mcp.tool
+def semantic_search(query: str, limit: int = 5) -> list[dict]:
+    """Busca semântica por similaridade vetorial. Encontra conceitos relevantes
+    mesmo quando os termos exatos não aparecem no texto (ex: 'triturar plástico'
+    encontra documentos sobre 'granulador de polímeros'). Retorna resultados
+    ordenados por score de similaridade (0-1). Faz fallback automático para
+    busca por keyword se o índice semântico não estiver disponível."""
+    return _semantic_search_impl(query, limit)
 
 @mcp.tool
 def fetch(id: str) -> dict:
