@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 import frontmatter
 from fastmcp import FastMCP
+from rapidfuzz import fuzz
 
 logging.basicConfig(
     level=logging.INFO,
@@ -99,26 +100,38 @@ _WEIGHT_TITLE = 8
 _WEIGHT_TAGS = 4
 _WEIGHT_DESCRIPTION = 2
 _WEIGHT_BODY = 1
+_FUZZY_THRESHOLD = 80
+_FUZZY_PENALTY = 0.6
 
 
-def _score(doc: dict, terms: list[str]) -> int:
-    """Retorna score > 0 se TODOS os termos aparecem no documento (AND)."""
+def _term_in_field(term: str, field: str) -> float:
+    """Retorna 1.0 para match exato, 0 < x < 1 para fuzzy, 0 para sem match."""
+    if term in field:
+        return 1.0
+    words = field.split()
+    if not words:
+        return 0.0
+    best = max(fuzz.ratio(term, w) for w in words)
+    if best >= _FUZZY_THRESHOLD:
+        return (best / 100.0) * _FUZZY_PENALTY
+    return 0.0
+
+
+def _score(doc: dict, terms: list[str]) -> float:
+    """Retorna score > 0 se TODOS os termos aparecem no documento (AND).
+    Aceita match fuzzy (typos) com penalidade no score."""
     title = _normalize(doc["title"])
     tags = _normalize(" ".join(map(str, doc["tags"])))
     desc = _normalize(doc["description"])
     body = _normalize(doc["body"])
 
-    total = 0
+    total = 0.0
     for term in terms:
-        t_score = 0
-        if term in title:
-            t_score += _WEIGHT_TITLE
-        if term in tags:
-            t_score += _WEIGHT_TAGS
-        if term in desc:
-            t_score += _WEIGHT_DESCRIPTION
-        if term in body:
-            t_score += _WEIGHT_BODY
+        t_score = 0.0
+        t_score += _term_in_field(term, title) * _WEIGHT_TITLE
+        t_score += _term_in_field(term, tags) * _WEIGHT_TAGS
+        t_score += _term_in_field(term, desc) * _WEIGHT_DESCRIPTION
+        t_score += _term_in_field(term, body) * _WEIGHT_BODY
         if t_score == 0:
             return 0
         total += t_score
@@ -137,7 +150,7 @@ def _search_impl(query: str, limit: int = 8, offset: int = 0) -> list[dict]:
                  "description": "Forneça pelo menos um termo de busca."}]
 
     terms = _normalize(raw).split()
-    scored: list[tuple[int, dict]] = []
+    scored: list[tuple[float, dict]] = []
     for d in _all():
         s = _score(d, terms)
         if s > 0:
@@ -238,7 +251,7 @@ def _get_stats_impl() -> dict:
 def search(query: str, limit: int = 8, offset: int = 0) -> list[dict]:
     """Procura conceitos por palavra-chave em title, description, tags e corpo.
     Suporta multiplos termos (AND): 'motor eletrico' exige ambas as palavras.
-    Tolerante a acentos: 'trituracao' encontra 'trituração'.
+    Tolerante a acentos ('trituracao' → 'trituração') e typos ('triturdora' → 'trituradora').
     Resultados ordenados por relevancia. Use offset para paginar."""
     return _search_impl(query, limit, offset)
 

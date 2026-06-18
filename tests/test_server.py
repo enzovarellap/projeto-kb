@@ -109,7 +109,7 @@ def kb_de_teste(tmp_path: Path, monkeypatch):
         timestamp: 2026-06-17T12:00:00Z
         ---
         # Duplo Rotor
-        Método de trituração com dois rotores.
+        Método de trituração com dois rotores. A trituradora opera em contra-rotação.
         """),
         encoding="utf-8",
     )
@@ -172,6 +172,38 @@ def test_search_accent_tolerant():
     resultados = srv._search_impl("trituracao")
     ids = [r["id"] for r in resultados]
     assert "metodos/duplo-rotor" in ids
+
+
+def test_search_fuzzy_typo_single_char():
+    import server as srv
+    resultados = srv._search_impl("Alpah")
+    ids = [r["id"] for r in resultados]
+    assert "conceitos/alpha" in ids
+
+
+def test_search_fuzzy_typo_in_body():
+    import server as srv
+    resultados = srv._search_impl("triturdora")
+    ids = [r["id"] for r in resultados]
+    assert any("metodos" in i or "duplo" in i for i in ids) or any(
+        "tritu" in r["title"].lower() for r in resultados
+    )
+
+
+def test_search_fuzzy_scores_lower_than_exact():
+    import server as srv
+    exact = srv._search_impl("Alpha")
+    fuzzy = srv._search_impl("Alpah")
+    exact_has_alpha = any(r["id"] == "conceitos/alpha" for r in exact)
+    fuzzy_has_alpha = any(r["id"] == "conceitos/alpha" for r in fuzzy)
+    assert exact_has_alpha
+    assert fuzzy_has_alpha
+
+
+def test_search_fuzzy_garbage_no_match():
+    import server as srv
+    resultados = srv._search_impl("zzzqqq")
+    assert resultados[0]["title"] == "Nada encontrado"
 
 
 def test_search_relevance_title_first():

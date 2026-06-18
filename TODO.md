@@ -24,7 +24,7 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 - [x] **Relevância / scoring**: resultados ordenados por score (título=8, tags=4, descrição=2, corpo=1)
 - [x] **Paginação**: parâmetro `offset` adicionado ao `search`
 - [x] **Busca tolerante a acentos**: normalização via `unicodedata` (stdlib) — "trituracao" encontra "trituração"
-- [ ] **Busca fuzzy / typos**: tolerância a erros de digitação (ex: "triturdora" → "trituradora") `[🔍 avaliar lib: rapidfuzz]`
+- [x] **Busca fuzzy / typos**: `rapidfuzz` integrado — "triturdora" encontra "trituradora" (threshold 80, penalidade 0.6x no score)
 
 ### 1.2 Novas tools MCP
 
@@ -161,7 +161,7 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 
 | # | Tema | Pergunta-chave |
 |---|------|----------------|
-| 1 | Busca fuzzy | Qual lib Python melhor para fuzzy search tolerante a acentos em PT-BR? |
+| ~~1~~ | ~~Busca fuzzy~~ | ~~Resolvido: rapidfuzz>=3.0.0~~ |
 | 2 | Write via MCP | Faz sentido permitir que assistentes escrevam no bundle? Quais riscos? |
 | 3 | Vector DB | LanceDB vs ChromaDB vs SQLite-VSS para uso local zero-infra? |
 | 4 | Embeddings PT-BR | Qual modelo de embedding tem melhor qualidade para português técnico? |
