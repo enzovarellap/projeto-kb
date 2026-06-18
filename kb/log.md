@@ -1,16 +1,13 @@
 ---
 type: Log
-title: Log de Mudanças
-description: Histórico cronológico de alterações na KB.
-resource: ""
-tags: [log, histórico]
+title: Histórico de mudanças da KB
+description: Registro cronológico de alterações no bundle.
+resource: drive://SDE 2026.2
+tags: [log]
 timestamp: 2026-06-17T12:00:00Z
 ---
 
-# Log de Mudanças
+# Log
 
-## 2026-06-17
-
-- Criação inicial do bundle OKF.
-- Adicionados conceitos-semente: `conceitos/visao-geral`, `conceitos/glossario`, `playbooks/como-adicionar-doc`.
-- Criados índices em `conceitos/index.md` e `playbooks/index.md`.
+- **2026-06-17** — Bundle inicial gerado a partir dos 7 arquivos da pasta "SDE 2026.2":
+  apresentação dos 6 métodos, análise de viabilidade, proposta de escopo e cronograma de sustentabilidade.

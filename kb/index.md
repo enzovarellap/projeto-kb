@@ -1,26 +1,24 @@
 ---
-type: Índice
-title: Base de Conhecimento — Índice Raiz
-description: Ponto de entrada principal da KB. Liste tudo aqui antes de ir a subpastas.
-resource: ""
-tags: [índice, raiz]
+type: Indice
+title: Trituradora FDM — KB do projeto
+description: Ponto de entrada da base de conhecimento do grupo Trituradora (SDE 2026.2).
+resource: drive://SDE 2026.2
+tags: [projeto, indice]
 timestamp: 2026-06-17T12:00:00Z
 ---
 
-# Base de Conhecimento
+# KB — Módulo de Trituração de Resíduos FDM
 
-Esta KB usa o formato OKF (Open Knowledge Format): markdown + YAML frontmatter.
-Navegue pelos índices de cada seção ou use `search` para localizar conceitos.
+Base de conhecimento do **grupo Trituradora (19h)** da disciplina ESMA001-23 (UFABC, 2026.2).
+Etapa 1 de um sistema de economia circular para resíduos de impressão 3D: triturar purgas,
+suportes e peças defeituosas em fragmentos homogêneos que alimentam a **Extrusora (grupo 21h)**.
 
-## Seções
+## Mapa da base
+- [Projeto](/projeto/index.md) — escopo, organização da equipe e a decisão de método.
+- [Métodos de trituração](/metodos/index.md) — os 6 métodos avaliados, com comparativo.
+- [Viabilidade](/viabilidade/index.md) — inventário de componentes, custos e eletrônica.
+- [Cronogramas](/cronogramas/index.md) — prazos e entregas.
 
-- [Conceitos](conceitos/index.md) — definições, escopo e glossário do projeto.
-- [Playbooks](playbooks/index.md) — guias operacionais passo a passo.
-
-## Como navegar
-
-1. Use `search("palavra")` para localizar um conceito pelo conteúdo.
-2. Use `fetch("conceitos/visao-geral")` para ler um conceito pelo id.
-3. Siga os `outgoing_links` para explorar o grafo de conhecimento.
-
-Veja [log de mudanças](log.md) para o histórico de atualizações.
+## Datas-âncora
+- **18/06** — entrega do escopo consolidado + cronograma detalhado; alinhamento com a Extrusora.
+- **23/07** — entrega da Fase 1.
