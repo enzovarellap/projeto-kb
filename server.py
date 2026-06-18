@@ -1,26 +1,64 @@
-# server.py — MCP server de contexto sobre um bundle OKF (search + fetch)
-# Navegacao-primeiro: sem embeddings. Le markdown + frontmatter direto do disco.
+import logging
+import unicodedata
 from pathlib import Path
 import re
-import frontmatter            # pip install python-frontmatter
-from fastmcp import FastMCP   # pip install fastmcp
+import frontmatter
+from fastmcp import FastMCP
 
-KB = Path(__file__).parent / "kb"   # raiz do bundle OKF
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger("projeto-kb")
+
+KB = Path(__file__).parent / "kb"
 
 mcp = FastMCP(
     name="projeto-kb",
     instructions=(
         "Base de conhecimento compartilhada em formato OKF (markdown + frontmatter). "
         "Use 'search' para localizar conceitos e 'fetch' para ler um conceito pelo id "
-        "(caminho relativo sem .md). Comece pelos index.md e siga os outgoing_links."
+        "(caminho relativo sem .md). Use 'list_topics' para ver a arvore de navegacao, "
+        "'get_log' para o historico de mudancas, e 'get_stats' para estatisticas do bundle. "
+        "Comece pelos index e siga os outgoing_links."
     ),
 )
+
+# ---------------------------------------------------------------------------
+# Cache com invalidacao por mtime
+# ---------------------------------------------------------------------------
+
+_cache: list[dict] = []
+_cache_mtime: float = 0.0
+
+
+def _normalize(text: str) -> str:
+    """Minuscula + remove acentos (e.g. 'trituração' → 'trituracao')."""
+    text = text.lower()
+    nfkd = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in nfkd if not unicodedata.combining(c))
+
 
 def _id(path: Path) -> str:
     return str(path.relative_to(KB)).replace("\\", "/").replace(".md", "")
 
+
 def _load(path: Path) -> dict:
-    post = frontmatter.load(path)
+    try:
+        post = frontmatter.load(path)
+    except Exception as exc:
+        log.warning("Falha ao carregar %s: %s", path, exc)
+        return {
+            "id": _id(path),
+            "type": "Erro",
+            "title": path.name,
+            "description": f"Erro ao ler: {exc}",
+            "resource": "",
+            "tags": [],
+            "timestamp": "",
+            "body": "",
+        }
     return {
         "id": _id(path),
         "type": post.get("type", "Conceito"),
@@ -32,47 +70,178 @@ def _load(path: Path) -> dict:
         "body": post.content,
     }
 
+
 def _all() -> list[dict]:
-    # Rele a cada chamada -> reflete edicoes na hora ("sempre atualizado").
-    return [_load(p) for p in sorted(KB.glob("**/*.md"))]
+    global _cache, _cache_mtime
+    md_files = sorted(KB.glob("**/*.md"))
+    if not md_files:
+        _cache, _cache_mtime = [], 0.0
+        return _cache
+    current_mtime = max(f.stat().st_mtime for f in md_files)
+    if current_mtime != _cache_mtime or not _cache:
+        log.info("Recarregando bundle (%d arquivos)", len(md_files))
+        _cache = [_load(p) for p in md_files]
+        _cache_mtime = current_mtime
+    return _cache
 
 
+def invalidate_cache() -> None:
+    """Força recarga na próxima chamada (útil em testes)."""
+    global _cache, _cache_mtime
+    _cache, _cache_mtime = [], 0.0
+
+
+# ---------------------------------------------------------------------------
+# Scoring de relevancia
+# ---------------------------------------------------------------------------
+
+_WEIGHT_TITLE = 8
+_WEIGHT_TAGS = 4
+_WEIGHT_DESCRIPTION = 2
+_WEIGHT_BODY = 1
+
+
+def _score(doc: dict, terms: list[str]) -> int:
+    """Retorna score > 0 se TODOS os termos aparecem no documento (AND)."""
+    title = _normalize(doc["title"])
+    tags = _normalize(" ".join(map(str, doc["tags"])))
+    desc = _normalize(doc["description"])
+    body = _normalize(doc["body"])
+
+    total = 0
+    for term in terms:
+        t_score = 0
+        if term in title:
+            t_score += _WEIGHT_TITLE
+        if term in tags:
+            t_score += _WEIGHT_TAGS
+        if term in desc:
+            t_score += _WEIGHT_DESCRIPTION
+        if term in body:
+            t_score += _WEIGHT_BODY
+        if t_score == 0:
+            return 0
+        total += t_score
+    return total
+
+
+# ---------------------------------------------------------------------------
 # Implementacoes puras (sem decorador) — utilizadas diretamente nos testes.
+# ---------------------------------------------------------------------------
 
-def _search_impl(query: str, limit: int = 8) -> list[dict]:
-    """Procura conceitos por palavra-chave em title, description, tags e corpo."""
-    q = query.lower().strip()
-    hits = []
+def _search_impl(query: str, limit: int = 8, offset: int = 0) -> list[dict]:
+    """Procura conceitos por palavra-chave. Suporta multiplos termos (AND)."""
+    raw = query.strip()
+    if not raw:
+        return [{"id": "", "type": "", "title": "Query vazia",
+                 "description": "Forneça pelo menos um termo de busca."}]
+
+    terms = _normalize(raw).split()
+    scored: list[tuple[int, dict]] = []
     for d in _all():
-        hay = f"{d['title']} {d['description']} {' '.join(map(str, d['tags']))} {d['body']}".lower()
-        if q in hay:
-            hits.append({
+        s = _score(d, terms)
+        if s > 0:
+            scored.append((s, {
                 "id": d["id"], "type": d["type"],
                 "title": d["title"], "description": d["description"],
-            })
-    return hits[:limit] or [{"id": "", "type": "", "title": "Nada encontrado",
-                             "description": f"Sem resultado para '{query}'."}]
+            }))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    hits = [item for _, item in scored]
+
+    page = hits[offset:offset + limit]
+    log.info("search(%r) → %d total, retornando %d (offset=%d)",
+             raw, len(hits), len(page), offset)
+
+    return page or [{"id": "", "type": "", "title": "Nada encontrado",
+                     "description": f"Sem resultado para '{raw}'."}]
 
 
 def _fetch_impl(id: str) -> dict:
     """Retorna o conceito completo pelo id, com outgoing_links resolvidos."""
+    id = id.strip()
     for d in _all():
         if d["id"] == id:
             links = re.findall(r"\]\(([^)]+\.md)\)", d["body"])
-            d["outgoing_links"] = [l.replace(".md", "").lstrip("/") for l in links]
-            return d
+            result = dict(d)
+            result["outgoing_links"] = [
+                lnk.replace(".md", "").lstrip("/") for lnk in links
+            ]
+            log.info("fetch(%r) → %s", id, result["title"])
+            return result
+    log.warning("fetch(%r) → não encontrado", id)
     return {"id": id, "title": "Nao encontrado",
             "body": f"Sem conceito '{id}'.", "outgoing_links": []}
 
 
-# Wrappers registrados como tools MCP (assinatura contratual: secao 5.2 do handoff).
+def _list_topics_impl() -> list[dict]:
+    """Retorna a arvore de pastas/indices do bundle para navegacao."""
+    topics: list[dict] = []
+    for d in _all():
+        if d["id"].endswith("index") or d["id"] == "index":
+            children = []
+            links = re.findall(r"\]\(([^)]+\.md)\)", d["body"])
+            for lnk in links:
+                child_id = lnk.replace(".md", "").lstrip("/")
+                children.append(child_id)
+            topics.append({
+                "id": d["id"],
+                "title": d["title"],
+                "type": d["type"],
+                "children": children,
+            })
+    log.info("list_topics → %d indices", len(topics))
+    return topics
+
+
+def _get_log_impl(last_n: int = 20) -> dict:
+    """Retorna o conteúdo do log.md com as últimas N entradas."""
+    for d in _all():
+        if d["id"] == "log":
+            lines = d["body"].strip().splitlines()
+            entries = [ln for ln in lines if ln.strip().startswith("- ")]
+            return {
+                "id": "log",
+                "title": d["title"],
+                "total_entries": len(entries),
+                "entries": entries[-last_n:],
+            }
+    return {"id": "log", "title": "Log não encontrado",
+            "total_entries": 0, "entries": []}
+
+
+def _get_stats_impl() -> dict:
+    """Retorna estatísticas do bundle."""
+    docs = _all()
+    by_type: dict[str, int] = {}
+    latest_ts = ""
+    for d in docs:
+        t = d["type"]
+        by_type[t] = by_type.get(t, 0) + 1
+        if d["timestamp"] and d["timestamp"] > latest_ts:
+            latest_ts = d["timestamp"]
+
+    folders = sorted({d["id"].rsplit("/", 1)[0] for d in docs if "/" in d["id"]})
+    return {
+        "total_concepts": len(docs),
+        "by_type": by_type,
+        "folders": folders,
+        "latest_timestamp": latest_ts,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Wrappers registrados como tools MCP
+# ---------------------------------------------------------------------------
 
 @mcp.tool
-def search(query: str, limit: int = 8) -> list[dict]:
+def search(query: str, limit: int = 8, offset: int = 0) -> list[dict]:
     """Procura conceitos por palavra-chave em title, description, tags e corpo.
-    Retorna {id, type, title, description}. Ids terminados em 'index' sao
-    paginas-indice (bons pontos de entrada para navegar)."""
-    return _search_impl(query, limit)
+    Suporta multiplos termos (AND): 'motor eletrico' exige ambas as palavras.
+    Tolerante a acentos: 'trituracao' encontra 'trituração'.
+    Resultados ordenados por relevancia. Use offset para paginar."""
+    return _search_impl(query, limit, offset)
+
 
 @mcp.tool
 def fetch(id: str) -> dict:
@@ -81,7 +250,25 @@ def fetch(id: str) -> dict:
     return _fetch_impl(id)
 
 
+@mcp.tool
+def list_topics() -> list[dict]:
+    """Retorna a arvore de navegacao do bundle: cada indice com seus filhos.
+    Bom ponto de partida para explorar a base de conhecimento."""
+    return _list_topics_impl()
+
+
+@mcp.tool
+def get_log(last_n: int = 20) -> dict:
+    """Retorna as ultimas N entradas do historico de mudancas do bundle."""
+    return _get_log_impl(last_n)
+
+
+@mcp.tool
+def get_stats() -> dict:
+    """Retorna estatisticas do bundle: total de conceitos, contagem por tipo,
+    pastas existentes e timestamp da ultima atualizacao."""
+    return _get_stats_impl()
+
+
 if __name__ == "__main__":
-    # streamable-http = transporte remoto esperado por Claude/ChatGPT.
-    # Local: http://127.0.0.1:8000/mcp
     mcp.run(transport="streamable-http", host="127.0.0.1", port=8000)

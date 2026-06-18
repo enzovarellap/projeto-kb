@@ -11,7 +11,12 @@ Origem (Google Drive)  →  Bundle OKF (kb/)  →  MCP server (server.py)
 ```
 
 - **Bundle OKF:** pasta de markdown com YAML frontmatter. Versionado neste repo.
-- **MCP server:** expõe `search` e `fetch` via `streamable-http` em `127.0.0.1:8000`.
+- **MCP server:** expõe 5 tools via `streamable-http` em `127.0.0.1:8000`:
+  - `search(query, limit, offset)` — busca multi-termo com relevância e normalização de acentos
+  - `fetch(id)` — conceito completo com outgoing_links resolvidos
+  - `list_topics()` — árvore de navegação (índices + filhos)
+  - `get_log(last_n)` — histórico de mudanças do bundle
+  - `get_stats()` — estatísticas: total, por tipo, pastas, último timestamp
 - **Ingestão:** `ingest.py` converte arquivos locais (PDF, DOCX, etc.) em conceitos OKF.
 
 ## Instalação
