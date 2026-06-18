@@ -23,11 +23,19 @@ def _is_iso8601(value) -> bool:
     return bool(ISO_RE.match(str(value).strip()))
 
 
-def _resolve_link(source: Path, href: str) -> bool:
-    """Verifica se um link markdown relativo aponta para um .md existente."""
+def _resolve_link(source: Path, href: str, kb_root: Path) -> bool:
+    """Verifica se um link aponta para um .md existente.
+
+    Links que começam com '/' são raiz-relativos ao bundle (kb_root).
+    Links sem '/' são relativos ao diretório do arquivo-fonte.
+    """
     if href.startswith(("http://", "https://", "drive://", "mailto:")):
         return True
-    target = (source.parent / href).resolve()
+    if href.startswith("/"):
+        # /pasta/arquivo.md → kb_root/pasta/arquivo.md
+        target = (kb_root / href.lstrip("/")).resolve()
+    else:
+        target = (source.parent / href).resolve()
     return target.exists()
 
 
@@ -64,7 +72,7 @@ def validate(kb_root: Path = KB) -> list[str]:
         links = re.findall(r"\]\(([^)]+\.md[^)]*)\)", post.content)
         for raw_link in links:
             href = raw_link.split("#")[0]  # ignora fragmentos
-            if not _resolve_link(path, href):
+            if not _resolve_link(path, href, kb_root):
                 errors.append(
                     f"{prefix} link quebrado: '{href}' não existe no disco."
                 )
