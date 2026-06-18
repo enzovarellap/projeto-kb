@@ -11,7 +11,7 @@ Origem (Google Drive)  →  Bundle OKF (kb/)  →  MCP server (server.py)
 ```
 
 - **Bundle OKF:** pasta de markdown com YAML frontmatter. Versionado neste repo.
-- **MCP server:** expõe `search` e `fetch` via `streamable-http` em `127.0.0.1:8000`.
+- **MCP server:** expõe `search`, `semantic_search` e `fetch` via `streamable-http` em `127.0.0.1:8000`.
 - **Ingestão:** `ingest.py` converte arquivos locais (PDF, DOCX, etc.) em conceitos OKF.
 
 ## Instalação
@@ -60,11 +60,24 @@ make ingest SRC=exemplos/meu-lote OUT=kb/importados
 python ingest.py --src exemplos/meu-lote --out kb/importados --type Playbook
 ```
 
+### Indexar para busca semântica
+
+```bash
+make index          # full reindex (recria do zero)
+make index-update   # incremental (apenas novos/modificados)
+```
+
+A busca semântica usa ChromaDB + embeddings (default: `all-MiniLM-L6-v2` via ONNX). Para usar um modelo multilingual melhor para PT-BR (requer acesso ao HuggingFace Hub):
+
+```bash
+python embeddings.py --model paraphrase-multilingual-MiniLM-L12-v2
+```
+
 ### Rodar os testes
 
 ```bash
 make test
-# ou: pytest tests/ -v
+# ou: python3 -m pytest tests/ -v
 ```
 
 ## Estrutura
@@ -76,10 +89,11 @@ projeto-kb/
 │   ├── log.md             # histórico de mudanças
 │   ├── conceitos/         # definições e glossário
 │   └── playbooks/         # guias operacionais
-├── server.py              # MCP server
+├── server.py              # MCP server (search, semantic_search, fetch)
+├── embeddings.py          # índice semântico (ChromaDB + embeddings)
 ├── ingest.py              # ingestão local
 ├── validate_okf.py        # validador OKF
-├── tests/                 # testes pytest
+├── tests/                 # testes pytest (24 testes)
 ├── requirements.txt
 └── Makefile
 ```
@@ -122,6 +136,4 @@ Para plugar o server no ChatGPT como "Custom GPT Action":
 3. Configurar autenticação (API Key ou OAuth).
 
 ### Embeddings / Vector DB
-Fora de escopo nesta fase. Quando chegar a hora:
-- Avaliar LanceDB ou ChromaDB.
-- Adicionar tool `semantic_search(query)` ao `server.py`.
+Implementado na Fase 2. Rode `make index` para gerar os embeddings e use `semantic_search` via MCP.
