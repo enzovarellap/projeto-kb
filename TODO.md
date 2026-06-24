@@ -46,13 +46,13 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 
 ## Fase 2 — Busca Semântica (Embeddings)
 
-- [🔍] **Escolher vector DB local**: avaliar LanceDB vs. ChromaDB vs. SQLite-VSS — critérios: zero-infra, integração Python, persistência em arquivo `[🔍 pesquisar benchmarks e trade-offs]`
-- [🔍] **Escolher modelo de embeddings**: avaliar opções — `sentence-transformers` local (all-MiniLM-L6-v2), OpenAI `text-embedding-3-small`, ou Voyage AI `[🔍 pesquisar custo, latência, qualidade para PT-BR]`
-- [ ] **Gerar embeddings do bundle**: script para indexar todos os conceitos no vector DB, rodando na ingestão ou via `make index`
-- [ ] **Tool `semantic_search(query)`**: nova tool MCP que faz busca por similaridade vetorial, retornando os N conceitos mais próximos
-- [ ] **Reindexação incremental**: ao ingerir novos documentos, atualizar apenas os embeddings novos/modificados
-- [ ] **Fallback**: manter `search` (keyword) como fallback quando semantic não encontra resultado com score suficiente
-- [ ] **Testes**: testar busca semântica com queries parafrazeadas, em português, e com termos técnicos do domínio
+- [x] **Escolher vector DB local**: ChromaDB — zero-infra, API simples, persistência em arquivo (`.chroma/`), espaço cosine
+- [x] **Escolher modelo de embeddings**: default ONNX `all-MiniLM-L6-v2` (embutido no ChromaDB, sem dependência externa); suporte a modelo multilingual (`paraphrase-multilingual-MiniLM-L12-v2`) via `--model` quando HuggingFace Hub estiver acessível
+- [x] **Gerar embeddings do bundle**: `embeddings.py` com CLI (`make index` / `make index-update`) — `SemanticIndex.build()` para full reindex
+- [x] **Tool `semantic_search(query)`**: nova tool MCP com score de similaridade (0-1), lazy-load do índice
+- [x] **Reindexação incremental**: `SemanticIndex.update()` compara hash MD5 de cada arquivo — adiciona novos, atualiza modificados, remove deletados
+- [x] **Fallback**: se índice indisponível, faz fallback para `search` (keyword); se top score < 0.25, suplementa com resultados keyword
+- [x] **Testes**: 15 testes cobrindo build, query (exata, parafraseada, proximidade semântica), update incremental, integração com server, e fallback
 
 ---
 
@@ -61,17 +61,17 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 - [ ] **Criar projeto no Google Cloud Console** (ação manual do Enzo)
 - [ ] **Habilitar Google Drive API** (ação manual do Enzo)
 - [ ] **Gerar credenciais OAuth 2.0** e salvar como `credentials.json` (ação manual do Enzo)
-- [ ] **Implementar `ingest_drive.py`**: usando `google-api-python-client` + `google-auth-oauthlib`
-  - [ ] Autenticação OAuth 2.0 com fluxo de consent
-  - [ ] Listar arquivos de uma pasta do Drive por ID
-  - [ ] Download de arquivos (PDF, DOCX, PPTX, Sheets → CSV)
-  - [ ] Chamar `ingest.py` existente para converter → OKF
-  - [ ] Idempotência: identificar arquivos já importados pelo `resource: drive://<id>`
-  - [ ] Atualizar `log.md` com registro da sincronização
-- [ ] **Sincronização incremental**: verificar `modifiedTime` do Drive para reimportar apenas alterados
-- [ ] **Comando Make**: `make sync-drive FOLDER_ID=xxx`
-- [ ] **Testes**: mockar a API do Drive para testar o pipeline de ingestão
-- [🔍] **Alternativa: Google Drive MCP nativo**: em vez de implementar ingestão própria, avaliar se o MCP server pode consumir o Google Drive diretamente via MCP bridge `[🔍 pesquisar se existe MCP server de Google Drive pronto]`
+- [x] **Implementar `ingest_drive.py`**: usando `google-api-python-client` + `google-auth-oauthlib`
+  - [x] Autenticação OAuth 2.0 com fluxo de consent (+ cache de token em `token.json`)
+  - [x] Listar arquivos de uma pasta do Drive por ID (paginação automática)
+  - [x] Download de arquivos (PDF, DOCX, PPTX, Sheets → CSV, Google Docs → DOCX, Slides → PPTX)
+  - [x] Chamar `ingest.py` existente para converter → OKF
+  - [x] Idempotência: identificar arquivos já importados pelo `resource: drive://<id>`
+  - [x] Atualizar `log.md` com registro da sincronização
+- [x] **Sincronização incremental**: verificar `modifiedTime` do Drive via `.drive-sync.json` para reimportar apenas alterados
+- [x] **Comando Make**: `make sync-drive FOLDER_ID=xxx [OUT=kb/subpasta] [TYPE=Tipo] [INCREMENTAL=1]`
+- [x] **Testes**: 17 testes mockando a API do Drive — list, download, export, filter, sync state, idempotência, log
+- [x] **Alternativa: Google Drive MCP nativo**: avaliado — existe MCP server de Google Drive disponível, mas a ingestão própria foi implementada para permitir uso standalone (CI/CD, scripts, sem depender de sessão MCP)
 
 ---
 
@@ -163,8 +163,8 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 |---|------|----------------|
 | ~~1~~ | ~~Busca fuzzy~~ | ~~Resolvido: rapidfuzz>=3.0.0~~ |
 | 2 | Write via MCP | Faz sentido permitir que assistentes escrevam no bundle? Quais riscos? |
-| 3 | Vector DB | LanceDB vs ChromaDB vs SQLite-VSS para uso local zero-infra? |
-| 4 | Embeddings PT-BR | Qual modelo de embedding tem melhor qualidade para português técnico? |
+| ~~3~~ | ~~Vector DB~~ | ~~Resolvido: ChromaDB — zero-infra, persistente, API simples~~ |
+| ~~4~~ | ~~Embeddings PT-BR~~ | ~~Resolvido: default ONNX (all-MiniLM-L6-v2); multilingual via --model~~ |
 | 5 | Google Drive MCP | Existe MCP server de Google Drive pronto para reusar? |
 | 6 | Plataforma de deploy | Render vs Railway vs Fly.io — qual tem melhor free tier para MCP? |
 | 7 | CORS no FastMCP | FastMCP já configura CORS automaticamente? |
@@ -181,7 +181,7 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 
 ```
 Fase 1 (robustez)     ████████░░  ← próxima — melhora o que já existe
-Fase 2 (semântica)    ██████░░░░  ← diferencial de qualidade
+Fase 2 (semântica)    ██████████  ✅ COMPLETA
 Fase 4 (deploy + CI)  ██████░░░░  ← habilita fases 3 e 5
 Fase 3 (Google Drive) ████░░░░░░  ← depende de ação humana (credentials)
 Fase 5 (multi-AI)     ████░░░░░░  ← depende do deploy (fase 4)

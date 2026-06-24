@@ -1,6 +1,7 @@
 import logging
 import unicodedata
 from pathlib import Path
+import logging
 import re
 import frontmatter
 from fastmcp import FastMCP
@@ -255,6 +256,15 @@ def search(query: str, limit: int = 8, offset: int = 0) -> list[dict]:
     Resultados ordenados por relevancia. Use offset para paginar."""
     return _search_impl(query, limit, offset)
 
+
+@mcp.tool
+def semantic_search(query: str, limit: int = 5) -> list[dict]:
+    """Busca semântica por similaridade vetorial. Encontra conceitos relevantes
+    mesmo quando os termos exatos não aparecem no texto (ex: 'triturar plástico'
+    encontra documentos sobre 'granulador de polímeros'). Retorna resultados
+    ordenados por score de similaridade (0-1). Faz fallback automático para
+    busca por keyword se o índice semântico não estiver disponível."""
+    return _semantic_search_impl(query, limit)
 
 @mcp.tool
 def fetch(id: str) -> dict:
