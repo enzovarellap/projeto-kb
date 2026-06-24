@@ -11,8 +11,9 @@ Origem (Google Drive)  →  Bundle OKF (kb/)  →  MCP server (server.py)
 ```
 
 - **Bundle OKF:** pasta de markdown com YAML frontmatter. Versionado neste repo.
-- **MCP server:** expõe 5 tools via `streamable-http` em `127.0.0.1:8000`:
+- **MCP server:** expõe 6 tools via `streamable-http` em `127.0.0.1:8000`:
   - `search(query, limit, offset)` — busca multi-termo com relevância e normalização de acentos
+  - `semantic_search(query, limit)` — busca por similaridade vetorial (ChromaDB + embeddings)
   - `fetch(id)` — conceito completo com outgoing_links resolvidos
   - `list_topics()` — árvore de navegação (índices + filhos)
   - `get_log(last_n)` — histórico de mudanças do bundle
@@ -43,6 +44,76 @@ make validate
 make serve
 # ou: python server.py
 # Acesse: http://127.0.0.1:8000/mcp
+```
+
+### Testar via curl
+
+O transporte `streamable-http` exige um handshake de inicialização antes de chamar qualquer tool. O header `Accept` deve incluir `application/json` e `text/event-stream`.
+
+**1. Inicializar sessão** (obter `Mcp-Session-Id`):
+
+```bash
+curl -v http://127.0.0.1:8000/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{
+    "jsonrpc":"2.0","id":1,"method":"initialize",
+    "params":{
+      "protocolVersion":"2025-03-26",
+      "capabilities":{},
+      "clientInfo":{"name":"test-client","version":"1.0"}
+    }
+  }'
+```
+
+Copie o valor de `mcp-session-id` do header de resposta (ex: `8dd8c7d9...`).
+
+**2. Chamar tools** (usando o session ID):
+
+```bash
+SID="<mcp-session-id>"
+
+# Listar tools disponíveis
+curl -s http://127.0.0.1:8000/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: $SID" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+
+# Buscar conceitos
+curl -s http://127.0.0.1:8000/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: $SID" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search","arguments":{"query":"trituracao"}}}'
+
+# Buscar conceito por id
+curl -s http://127.0.0.1:8000/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: $SID" \
+  -d '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"fetch","arguments":{"id":"metodos/01-duplo-rotor"}}}'
+
+# Árvore de navegação
+curl -s http://127.0.0.1:8000/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: $SID" \
+  -d '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"list_topics","arguments":{}}}'
+
+# Estatísticas do bundle
+curl -s http://127.0.0.1:8000/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: $SID" \
+  -d '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"get_stats","arguments":{}}}'
+
+# Histórico de mudanças
+curl -s http://127.0.0.1:8000/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: $SID" \
+  -d '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"get_log","arguments":{"last_n":5}}}'
 ```
 
 Adicione ao Claude Desktop (`claude_desktop_config.json`):
