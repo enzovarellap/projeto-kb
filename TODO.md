@@ -20,24 +20,26 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 
 ### 1.1 Melhorias nas tools existentes
 
-- [ ] **Busca multi-termo**: `search` hoje usa `q in hay` (substring única). Implementar busca com múltiplas palavras (AND/OR), para que "motor elétrico" encontre documentos com ambas as palavras mesmo separadas
-- [ ] **Relevância / scoring**: ordenar resultados por relevância (frequência de match, match no título vale mais que no corpo, etc.) em vez de ordem alfabética de arquivo
-- [ ] **Paginação**: adicionar parâmetro `offset` ao `search` para navegar resultados além do `limit`
-- [ ] **Busca fuzzy / tolerante a acentos**: normalizar acentos e permitir typos leves (ex: "trituracao" encontra "trituração") `[🔍 avaliar lib: unidecode, rapidfuzz ou similar]`
+- [x] **Busca multi-termo**: `search` agora usa AND — "motor elétrico" exige ambos os termos
+- [x] **Relevância / scoring**: resultados ordenados por score (título=8, tags=4, descrição=2, corpo=1)
+- [x] **Paginação**: parâmetro `offset` adicionado ao `search`
+- [x] **Busca tolerante a acentos**: normalização via `unicodedata` (stdlib) — "trituracao" encontra "trituração"
+- [x] **Busca fuzzy / typos**: `rapidfuzz` integrado — "triturdora" encontra "trituradora" (threshold 80, penalidade 0.6x no score)
 
 ### 1.2 Novas tools MCP
 
-- [ ] **`list_topics`**: retorna a árvore de pastas/índices do bundle (visão de navegação para o assistente)
-- [ ] **`get_index`**: retorna o conteúdo de um `index.md` específico com seus links — atalho para navegação sem precisar fetch genérico
-- [ ] **`get_log`**: retorna as últimas N entradas do `log.md` (histórico de mudanças)
-- [ ] **`get_stats`**: retorna estatísticas do bundle — total de conceitos, por tipo, última atualização, etc.
+- [x] **`list_topics`**: retorna a árvore de pastas/índices do bundle com filhos resolvidos
+- [ ] **`get_index`**: retorna o conteúdo de um `index.md` específico com seus links — atalho para navegação sem precisar fetch genérico (coberto por `fetch` + `list_topics`, baixa prioridade)
+- [x] **`get_log`**: retorna as últimas N entradas do `log.md`
+- [x] **`get_stats`**: retorna estatísticas do bundle — total, por tipo, pastas, último timestamp
 - [🔍] **`write_concept` / `update_concept`**: permitir que o assistente crie ou edite conceitos diretamente via MCP? (avaliar se faz sentido no fluxo do projeto — risco de corromper o bundle)
 
 ### 1.3 Resiliência e performance
 
-- [ ] **Cache em memória**: carregar o bundle em memória com invalidação por file-watcher (`watchdog`) em vez de reler todo o disco a cada chamada de `_all()`
-- [ ] **Tratamento de erros**: capturar `frontmatter.load` com YAML malformado, arquivo corrompido, encoding errado — retornar erro legível em vez de traceback
-- [ ] **Logging estruturado**: adicionar logs com `logging` (nível INFO para chamadas de tools, WARNING para erros de parse) — hoje o server é completamente silencioso
+- [x] **Cache em memória**: cache com invalidação por mtime (sem dependência extra de `watchdog`)
+- [x] **Tratamento de erros**: `frontmatter.load` com YAML malformado retorna doc de erro em vez de traceback
+- [x] **Logging estruturado**: logs com `logging` (INFO para chamadas, WARNING para erros de parse)
+- [x] **Proteção de query vazia**: queries vazias retornam mensagem orientativa
 - [ ] **Timeout e limites**: proteger contra queries muito amplas que retornam o bundle inteiro
 
 ---
@@ -159,7 +161,7 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 
 | # | Tema | Pergunta-chave |
 |---|------|----------------|
-| 1 | Busca fuzzy | Qual lib Python melhor para fuzzy search tolerante a acentos em PT-BR? |
+| ~~1~~ | ~~Busca fuzzy~~ | ~~Resolvido: rapidfuzz>=3.0.0~~ |
 | 2 | Write via MCP | Faz sentido permitir que assistentes escrevam no bundle? Quais riscos? |
 | ~~3~~ | ~~Vector DB~~ | ~~Resolvido: ChromaDB — zero-infra, persistente, API simples~~ |
 | ~~4~~ | ~~Embeddings PT-BR~~ | ~~Resolvido: default ONNX (all-MiniLM-L6-v2); multilingual via --model~~ |
