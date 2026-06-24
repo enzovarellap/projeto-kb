@@ -1,7 +1,9 @@
 """Testes para as tools do server.py (search, fetch, list_topics, get_log, get_stats)."""
+
+import sys
 import textwrap
 from pathlib import Path
-import sys
+
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -141,8 +143,10 @@ def kb_de_teste(tmp_path: Path, monkeypatch):
 # search — busca por keyword
 # ---------------------------------------------------------------------------
 
+
 def test_search_hit():
     import server as srv
+
     resultados = srv._search_impl("escopo")
     ids = [r["id"] for r in resultados]
     assert "conceitos/alpha" in ids
@@ -150,12 +154,14 @@ def test_search_hit():
 
 def test_search_miss():
     import server as srv
+
     resultados = srv._search_impl("xyzzy-inexistente")
     assert resultados[0]["title"] == "Nada encontrado"
 
 
 def test_search_multi_term():
     import server as srv
+
     resultados = srv._search_impl("motor eletrico")
     ids = [r["id"] for r in resultados]
     assert "conceitos/alpha" in ids
@@ -163,12 +169,14 @@ def test_search_multi_term():
 
 def test_search_multi_term_no_match():
     import server as srv
+
     resultados = srv._search_impl("motor xyzzy")
     assert resultados[0]["title"] == "Nada encontrado"
 
 
 def test_search_accent_tolerant():
     import server as srv
+
     resultados = srv._search_impl("trituracao")
     ids = [r["id"] for r in resultados]
     assert "metodos/duplo-rotor" in ids
@@ -176,6 +184,7 @@ def test_search_accent_tolerant():
 
 def test_search_fuzzy_typo_single_char():
     import server as srv
+
     resultados = srv._search_impl("Alpah")
     ids = [r["id"] for r in resultados]
     assert "conceitos/alpha" in ids
@@ -183,6 +192,7 @@ def test_search_fuzzy_typo_single_char():
 
 def test_search_fuzzy_typo_in_body():
     import server as srv
+
     resultados = srv._search_impl("triturdora")
     ids = [r["id"] for r in resultados]
     assert any("metodos" in i or "duplo" in i for i in ids) or any(
@@ -192,6 +202,7 @@ def test_search_fuzzy_typo_in_body():
 
 def test_search_fuzzy_scores_lower_than_exact():
     import server as srv
+
     exact = srv._search_impl("Alpha")
     fuzzy = srv._search_impl("Alpah")
     exact_has_alpha = any(r["id"] == "conceitos/alpha" for r in exact)
@@ -202,18 +213,21 @@ def test_search_fuzzy_scores_lower_than_exact():
 
 def test_search_fuzzy_garbage_no_match():
     import server as srv
+
     resultados = srv._search_impl("zzzqqq")
     assert resultados[0]["title"] == "Nada encontrado"
 
 
 def test_search_relevance_title_first():
     import server as srv
+
     resultados = srv._search_impl("alpha")
     assert resultados[0]["id"] == "conceitos/alpha"
 
 
 def test_search_pagination_offset():
     import server as srv
+
     all_results = srv._search_impl("conceito", limit=10)
     first_page = srv._search_impl("conceito", limit=1, offset=0)
     second_page = srv._search_impl("conceito", limit=1, offset=1)
@@ -226,12 +240,14 @@ def test_search_pagination_offset():
 
 def test_search_empty_query():
     import server as srv
+
     resultados = srv._search_impl("")
     assert resultados[0]["title"] == "Query vazia"
 
 
 def test_search_empty_query_spaces():
     import server as srv
+
     resultados = srv._search_impl("   ")
     assert resultados[0]["title"] == "Query vazia"
 
@@ -240,8 +256,10 @@ def test_search_empty_query_spaces():
 # fetch — buscar conceito por id
 # ---------------------------------------------------------------------------
 
+
 def test_fetch_existente():
     import server as srv
+
     conceito = srv._fetch_impl("conceitos/alpha")
     assert conceito["title"] == "Alpha"
     assert "body" in conceito
@@ -250,12 +268,14 @@ def test_fetch_existente():
 
 def test_fetch_outgoing_links():
     import server as srv
+
     conceito = srv._fetch_impl("conceitos/alpha")
     assert any("beta" in link for link in conceito["outgoing_links"])
 
 
 def test_fetch_inexistente():
     import server as srv
+
     conceito = srv._fetch_impl("conceitos/nao-existe")
     assert "Nao encontrado" in conceito["title"]
     assert conceito["outgoing_links"] == []
@@ -263,12 +283,14 @@ def test_fetch_inexistente():
 
 def test_fetch_strips_whitespace():
     import server as srv
+
     conceito = srv._fetch_impl("  conceitos/alpha  ")
     assert conceito["title"] == "Alpha"
 
 
 def test_fetch_does_not_mutate_cache():
     import server as srv
+
     c1 = srv._fetch_impl("conceitos/alpha")
     c2 = srv._fetch_impl("conceitos/alpha")
     assert c1 is not c2
@@ -279,8 +301,10 @@ def test_fetch_does_not_mutate_cache():
 # list_topics — arvore de navegacao
 # ---------------------------------------------------------------------------
 
+
 def test_list_topics_returns_indices():
     import server as srv
+
     topics = srv._list_topics_impl()
     ids = [t["id"] for t in topics]
     assert "index" in ids
@@ -290,6 +314,7 @@ def test_list_topics_returns_indices():
 
 def test_list_topics_has_children():
     import server as srv
+
     topics = srv._list_topics_impl()
     raiz = next(t for t in topics if t["id"] == "index")
     assert "conceitos/index" in raiz["children"]
@@ -298,6 +323,7 @@ def test_list_topics_has_children():
 
 def test_list_topics_excludes_non_index():
     import server as srv
+
     topics = srv._list_topics_impl()
     ids = [t["id"] for t in topics]
     assert "conceitos/alpha" not in ids
@@ -308,8 +334,10 @@ def test_list_topics_excludes_non_index():
 # get_log — historico de mudancas
 # ---------------------------------------------------------------------------
 
+
 def test_get_log_returns_entries():
     import server as srv
+
     result = srv._get_log_impl()
     assert result["id"] == "log"
     assert result["total_entries"] == 2
@@ -318,6 +346,7 @@ def test_get_log_returns_entries():
 
 def test_get_log_last_n():
     import server as srv
+
     result = srv._get_log_impl(last_n=1)
     assert len(result["entries"]) == 1
     assert "2026-06-18" in result["entries"][0]
@@ -327,14 +356,17 @@ def test_get_log_last_n():
 # get_stats — estatisticas do bundle
 # ---------------------------------------------------------------------------
 
+
 def test_get_stats_total():
     import server as srv
+
     stats = srv._get_stats_impl()
     assert stats["total_concepts"] == 7
 
 
 def test_get_stats_by_type():
     import server as srv
+
     stats = srv._get_stats_impl()
     assert stats["by_type"]["Conceito"] == 2
     assert stats["by_type"]["Indice"] == 3
@@ -343,6 +375,7 @@ def test_get_stats_by_type():
 
 def test_get_stats_folders():
     import server as srv
+
     stats = srv._get_stats_impl()
     assert "conceitos" in stats["folders"]
     assert "metodos" in stats["folders"]
@@ -350,6 +383,7 @@ def test_get_stats_folders():
 
 def test_get_stats_latest_timestamp():
     import server as srv
+
     stats = srv._get_stats_impl()
     assert "2026-06-18" in stats["latest_timestamp"]
 
@@ -358,8 +392,10 @@ def test_get_stats_latest_timestamp():
 # Cache — invalidacao
 # ---------------------------------------------------------------------------
 
+
 def test_cache_invalidation(tmp_path: Path):
     import server as srv
+
     first = srv._all()
     count_before = len(first)
 
@@ -387,8 +423,10 @@ def test_cache_invalidation(tmp_path: Path):
 # Erros — frontmatter malformado
 # ---------------------------------------------------------------------------
 
+
 def test_load_malformed_frontmatter(tmp_path: Path):
     import server as srv
+
     srv.invalidate_cache()
 
     (tmp_path / "conceitos" / "broken.md").write_text(

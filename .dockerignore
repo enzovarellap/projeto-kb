@@ -1,0 +1,13 @@
+.git
+.github
+.chroma
+.pytest_cache
+__pycache__
+*.pyc
+.env
+credentials.json
+token.json
+.drive-sync.json
+*.egg-info
+dist
+build

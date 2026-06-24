@@ -181,21 +181,60 @@ make test
 # ou: python3 -m pytest tests/ -v
 ```
 
+### Docker
+
+```bash
+# Build da imagem
+make docker
+
+# Rodar com variáveis de ambiente
+make docker-run
+# ou: docker run -p 8000:8000 -e HOST=0.0.0.0 -e PORT=8000 projeto-kb
+```
+
+### Lint e formatação
+
+```bash
+make lint       # ruff check
+make format     # ruff format
+
+# Instalar pre-commit hooks (roda lint + validate antes de cada commit)
+make pre-commit-install
+```
+
+## Variáveis de ambiente
+
+| Variável | Default | Descrição |
+|----------|---------|-----------|
+| `HOST` | `127.0.0.1` | Endereço de bind do server |
+| `PORT` | `8000` | Porta do server |
+| `KB_PATH` | `./kb` | Caminho para o bundle OKF |
+| `RATE_LIMIT_MAX` | `60` | Máximo de requests por janela |
+| `RATE_LIMIT_WINDOW` | `60` | Janela de rate limiting (segundos) |
+
+Copie `.env.example` para `.env` e ajuste os valores.
+
 ## Estrutura
 
 ```
 projeto-kb/
-├── kb/                    # bundle OKF
-│   ├── index.md           # índice raiz
-│   ├── log.md             # histórico de mudanças
-│   ├── conceitos/         # definições e glossário
-│   └── playbooks/         # guias operacionais
-├── server.py              # MCP server (search, semantic_search, fetch)
-├── embeddings.py          # índice semântico (ChromaDB + embeddings)
-├── ingest.py              # ingestão local
-├── ingest_drive.py        # integração Google Drive
-├── validate_okf.py        # validador OKF
-├── tests/                 # testes pytest
+├── kb/                        # bundle OKF
+│   ├── index.md               # índice raiz
+│   ├── log.md                 # histórico de mudanças
+│   ├── conceitos/             # definições e glossário
+│   └── playbooks/             # guias operacionais
+├── server.py                  # MCP server (search, semantic_search, fetch)
+├── embeddings.py              # índice semântico (ChromaDB + embeddings)
+├── ingest.py                  # ingestão local
+├── ingest_drive.py            # integração Google Drive
+├── validate_okf.py            # validador OKF
+├── healthcheck.py             # health check para Docker/plataformas
+├── tests/                     # testes pytest
+├── Dockerfile                 # imagem Docker
+├── .github/workflows/ci.yml   # GitHub Actions CI
+├── .pre-commit-config.yaml    # pre-commit hooks (ruff + validate)
+├── ruff.toml                  # config do linter
+├── .env.example               # template de variáveis de ambiente
 ├── requirements.txt
 └── Makefile
 ```
