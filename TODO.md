@@ -136,7 +136,7 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
   - [ ] Frontmatter malformado / encoding inválido
   - [ ] Busca com caracteres especiais, strings vazias, queries muito longas
   - [ ] Concorrência — múltiplas chamadas simultâneas ao server
-- [ ] **Testes de integração**: subir o server real e testar via cliente MCP
+- [ ] **Testes de integração**: subir o server real e testar via cliente MCP (nota: `streamable-http` exige handshake `initialize` → `Mcp-Session-Id` antes de qualquer `tools/call`; ver seção "Testar via curl" no README)
 - [ ] **Coverage report**: configurar `pytest-cov` e definir threshold mínimo (ex: 80%)
 
 ### 6.2 Observabilidade
