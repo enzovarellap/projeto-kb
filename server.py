@@ -20,6 +20,8 @@ log = logging.getLogger("projeto-kb")
 KB = Path(os.environ.get("KB_PATH", Path(__file__).parent / "kb"))
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8000"))
+MAX_RESULTS = int(os.environ.get("MAX_RESULTS", "50"))
+MAX_QUERY_LENGTH = int(os.environ.get("MAX_QUERY_LENGTH", "500"))
 
 mcp = FastMCP(
     name="projeto-kb",
@@ -28,6 +30,7 @@ mcp = FastMCP(
         "Use 'search' para localizar conceitos e 'fetch' para ler um conceito pelo id "
         "(caminho relativo sem .md). Use 'list_topics' para ver a arvore de navegacao, "
         "'get_log' para o historico de mudancas, e 'get_stats' para estatisticas do bundle. "
+        "Use 'get_index' para ver o conteudo de um indice especifico. "
         "Comece pelos index e siga os outgoing_links."
     ),
 )
@@ -254,6 +257,12 @@ def _search_impl(query: str, limit: int = 8, offset: int = 0) -> list[dict]:
             }
         ]
 
+    if len(raw) > MAX_QUERY_LENGTH:
+        return [{"id": "", "type": "", "title": "Query muito longa",
+                 "description": f"Limite de {MAX_QUERY_LENGTH} caracteres. Reduza a consulta."}]
+
+    limit = min(limit, MAX_RESULTS)
+
     terms = _normalize(raw).split()
     scored: list[tuple[float, dict]] = []
     for d in _all():
@@ -363,6 +372,105 @@ def _get_stats_impl() -> dict:
     }
 
 
+def _get_index_impl(id: str) -> dict:
+    """Retorna o conteúdo de um index.md específico com seus links resolvidos."""
+    id = id.strip().rstrip("/")
+    if not id.endswith("index"):
+        id = f"{id}/index" if id else "index"
+
+    for d in _all():
+        if d["id"] == id:
+            links = re.findall(r"\]\(([^)]+\.md)\)", d["body"])
+            children = []
+            for lnk in links:
+                child_id = lnk.replace(".md", "").lstrip("/")
+                child_doc = next((doc for doc in _all() if doc["id"] == child_id), None)
+                if child_doc:
+                    children.append({
+                        "id": child_doc["id"],
+                        "title": child_doc["title"],
+                        "type": child_doc["type"],
+                        "description": child_doc["description"],
+                    })
+                else:
+                    children.append({"id": child_id, "title": child_id, "type": "?", "description": ""})
+            log.info("get_index(%r) → %s (%d filhos)", id, d["title"], len(children))
+            return {
+                "id": d["id"],
+                "title": d["title"],
+                "type": d["type"],
+                "description": d["description"],
+                "children": children,
+            }
+
+    log.warning("get_index(%r) → não encontrado", id)
+    return {"id": id, "title": "Índice não encontrado",
+            "children": []}
+
+
+# ---------------------------------------------------------------------------
+# Busca semantica (embeddings)
+# ---------------------------------------------------------------------------
+
+_semantic_index = None
+
+
+def _load_semantic_index():
+    """Lazy-load do índice semântico."""
+    global _semantic_index
+    if _semantic_index is not None:
+        return _semantic_index
+    try:
+        from embeddings import CHROMA_DIR, SemanticIndex
+        chroma_path = Path(CHROMA_DIR)
+        if chroma_path.exists():
+            _semantic_index = SemanticIndex(kb_root=KB)
+            if _semantic_index.count() > 0:
+                log.info("Índice semântico carregado (%d docs)", _semantic_index.count())
+                return _semantic_index
+            _semantic_index = None
+    except Exception as exc:
+        log.warning("Não foi possível carregar índice semântico: %s", exc)
+        _semantic_index = None
+    return None
+
+
+def _semantic_search_impl(query: str, limit: int = 5) -> list[dict]:
+    """Busca semântica com fallback para keyword search."""
+    raw = query.strip()
+    if not raw:
+        return [{"id": "", "type": "", "title": "Query vazia",
+                 "description": "Forneça pelo menos um termo de busca."}]
+
+    if len(raw) > MAX_QUERY_LENGTH:
+        return [{"id": "", "type": "", "title": "Query muito longa",
+                 "description": f"Limite de {MAX_QUERY_LENGTH} caracteres."}]
+
+    limit = min(limit, MAX_RESULTS)
+
+    idx = _load_semantic_index()
+    if idx is None:
+        log.info("semantic_search(%r) → fallback para keyword", raw)
+        return _search_impl(raw, limit)
+
+    hits = idx.query(raw, n_results=limit)
+
+    from embeddings import SCORE_THRESHOLD
+    if not hits or hits[0].get("score", 0) < SCORE_THRESHOLD:
+        keyword_results = _search_impl(raw, limit)
+        seen_ids = {h["id"] for h in hits}
+        for kr in keyword_results:
+            if kr["id"] not in seen_ids and kr.get("title") not in ("Nada encontrado", "Query vazia"):
+                hits.append(kr)
+                seen_ids.add(kr["id"])
+            if len(hits) >= limit:
+                break
+
+    log.info("semantic_search(%r) → %d resultados", raw, len(hits))
+    return hits or [{"id": "", "type": "", "title": "Nada encontrado",
+                     "description": f"Sem resultado para '{raw}'."}]
+
+
 # ---------------------------------------------------------------------------
 # Wrappers registrados como tools MCP
 # ---------------------------------------------------------------------------
@@ -412,6 +520,25 @@ def get_stats() -> dict:
     """Retorna estatisticas do bundle: total de conceitos, contagem por tipo,
     pastas existentes e timestamp da ultima atualizacao."""
     return _get_stats_impl()
+
+
+@mcp.tool
+def get_index(id: str = "index") -> dict:
+    """Retorna o conteudo de um indice (index.md) especifico com seus filhos resolvidos.
+    Cada filho inclui id, title, type e description. Atalho para navegacao sem precisar
+    fazer fetch generico. Aceita id com ou sem '/index' (ex: 'metodos' ou 'metodos/index')."""
+    return _get_index_impl(id)
+
+
+# ---------------------------------------------------------------------------
+# Health check
+# ---------------------------------------------------------------------------
+
+@mcp.custom_route("/health", ["GET"])
+async def health_check(request):
+    from starlette.responses import JSONResponse
+    doc_count = len(_all())
+    return JSONResponse({"status": "ok", "documents": doc_count})
 
 
 if __name__ == "__main__":
