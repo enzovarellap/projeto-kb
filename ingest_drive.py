@@ -125,6 +125,19 @@ def list_files(service, folder_id: str) -> list[dict]:
     return results
 
 
+def _safe_stem(name: str) -> str:
+    """Extrai o nome base sem extensão, seguro para nomes com pontos internos.
+
+    Path("SDE 2026.2 - GERAL").stem retorna "SDE 2026" (errado).
+    Esta função remove apenas extensões conhecidas.
+    """
+    known_exts = {".pdf", ".docx", ".pptx", ".csv", ".txt", ".md", ".xlsx"}
+    p = Path(name)
+    if p.suffix.lower() in known_exts:
+        return p.stem
+    return name
+
+
 def download_file(service, file_info: dict, dest_dir: Path) -> Path | None:
     """Baixa um arquivo do Drive para dest_dir. Exporta Google Docs nativos."""
     mime = file_info["mimeType"]
@@ -133,11 +146,11 @@ def download_file(service, file_info: dict, dest_dir: Path) -> Path | None:
 
     if mime in EXPORT_MIMES:
         export_mime, ext = EXPORT_MIMES[mime]
-        dest = dest_dir / f"{Path(name).stem}{ext}"
+        dest = dest_dir / f"{_safe_stem(name)}{ext}"
         request = service.files().export_media(fileId=file_id, mimeType=export_mime)
     elif mime in SUPPORTED_MIMES:
         ext = SUPPORTED_MIMES[mime]
-        stem = Path(name).stem
+        stem = _safe_stem(name)
         dest = dest_dir / f"{stem}{ext}"
         request = service.files().get_media(fileId=file_id)
     else:
