@@ -1,4 +1,5 @@
 """Validador de conformidade OKF para o bundle em kb/."""
+
 import datetime
 import re
 import sys
@@ -11,9 +12,7 @@ except ImportError:
     sys.exit(2)
 
 KB = Path(__file__).parent / "kb"
-ISO_RE = re.compile(
-    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$"
-)
+ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$")
 
 
 def _is_iso8601(value) -> bool:
@@ -64,18 +63,14 @@ def validate(kb_root: Path = KB) -> list[str]:
         # timestamp deve ser ISO 8601 se presente
         ts = post.get("timestamp")
         if ts and not _is_iso8601(ts):
-            errors.append(
-                f"{prefix} 'timestamp' inválido (deve ser ISO 8601): '{ts}'."
-            )
+            errors.append(f"{prefix} 'timestamp' inválido (deve ser ISO 8601): '{ts}'.")
 
         # cross-links devem apontar para .md existentes
         links = re.findall(r"\]\(([^)]+\.md[^)]*)\)", post.content)
         for raw_link in links:
             href = raw_link.split("#")[0]  # ignora fragmentos
             if not _resolve_link(path, href, kb_root):
-                errors.append(
-                    f"{prefix} link quebrado: '{href}' não existe no disco."
-                )
+                errors.append(f"{prefix} link quebrado: '{href}' não existe no disco.")
 
     return errors
 
@@ -84,9 +79,7 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Valida conformidade OKF do bundle.")
-    parser.add_argument(
-        "--kb", default=str(KB), help="Caminho raiz do bundle OKF (padrão: ./kb)."
-    )
+    parser.add_argument("--kb", default=str(KB), help="Caminho raiz do bundle OKF (padrão: ./kb).")
     args = parser.parse_args()
 
     kb_root = Path(args.kb)

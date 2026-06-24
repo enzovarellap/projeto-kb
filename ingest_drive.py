@@ -8,6 +8,7 @@ Requer:
     - credentials.json (OAuth 2.0 do Google Cloud Console)
     - google-api-python-client, google-auth-oauthlib
 """
+
 import argparse
 import json
 import sys
@@ -67,8 +68,9 @@ SUPPORTED_MIMES = {
 KB_ROOT = Path(__file__).parent / "kb"
 
 
-def authenticate(credentials_file: Path = CREDENTIALS_FILE,
-                 token_file: Path = TOKEN_FILE) -> Credentials:
+def authenticate(
+    credentials_file: Path = CREDENTIALS_FILE, token_file: Path = TOKEN_FILE
+) -> Credentials:
     """Autentica via OAuth 2.0 com cache de token."""
     creds = None
 
@@ -86,9 +88,7 @@ def authenticate(credentials_file: Path = CREDENTIALS_FILE,
                     "gere credenciais OAuth 2.0 e salve como 'credentials.json'."
                 )
                 sys.exit(1)
-            flow = InstalledAppFlow.from_client_secrets_file(
-                str(credentials_file), SCOPES
-            )
+            flow = InstalledAppFlow.from_client_secrets_file(str(credentials_file), SCOPES)
             creds = flow.run_local_server(port=0)
 
         token_file.write_text(creds.to_json())
@@ -110,12 +110,16 @@ def list_files(service, folder_id: str) -> list[dict]:
     page_token = None
 
     while True:
-        response = service.files().list(
-            q=f"'{folder_id}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'",
-            fields="nextPageToken, files(id, name, mimeType, modifiedTime)",
-            pageToken=page_token,
-            orderBy="name",
-        ).execute()
+        response = (
+            service.files()
+            .list(
+                q=f"'{folder_id}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'",
+                fields="nextPageToken, files(id, name, mimeType, modifiedTime)",
+                pageToken=page_token,
+                orderBy="name",
+            )
+            .execute()
+        )
 
         results.extend(response.get("files", []))
         page_token = response.get("nextPageToken")
@@ -163,9 +167,7 @@ def load_sync_state(state_file: Path = SYNC_STATE_FILE) -> dict:
 
 def save_sync_state(state: dict, state_file: Path = SYNC_STATE_FILE) -> None:
     """Persiste o estado da sincronização."""
-    state_file.write_text(
-        json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    state_file.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def _resource_id(file_id: str) -> str:
@@ -185,9 +187,7 @@ def _find_existing_by_resource(kb_dir: Path, resource: str) -> Path | None:
     return None
 
 
-def filter_changed_files(
-    files: list[dict], sync_state: dict
-) -> list[dict]:
+def filter_changed_files(files: list[dict], sync_state: dict) -> list[dict]:
     """Filtra apenas arquivos novos ou modificados desde a última sincronização."""
     changed = []
     for f in files:
@@ -269,12 +269,8 @@ def sync_drive(
             if existing and existing.exists():
                 post = frontmatter.load(existing)
                 post["resource"] = resource
-                post["timestamp"] = datetime.now(timezone.utc).strftime(
-                    "%Y-%m-%dT%H:%M:%SZ"
-                )
-                existing.write_text(
-                    frontmatter.dumps(post), encoding="utf-8"
-                )
+                post["timestamp"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                existing.write_text(frontmatter.dumps(post), encoding="utf-8")
 
         generated = ingest(tmp_dir, out, tipo)
 
@@ -285,9 +281,7 @@ def sync_drive(
             if concept_path.exists():
                 post = frontmatter.load(concept_path)
                 post["resource"] = resource
-                concept_path.write_text(
-                    frontmatter.dumps(post), encoding="utf-8"
-                )
+                concept_path.write_text(frontmatter.dumps(post), encoding="utf-8")
 
         for f in files:
             sync_state[f["id"]] = {

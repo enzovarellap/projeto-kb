@@ -1,4 +1,5 @@
 """Testes para busca semântica (embeddings.py + semantic_search no server)."""
+
 import sys
 from pathlib import Path
 
@@ -165,9 +166,7 @@ class TestUpdate:
             tags=["peneira", "classificação"],
             timestamp="2026-06-18T12:00:00Z",
         )
-        (kb / "conceitos" / "peneira.md").write_text(
-            fm.dumps(new_doc), encoding="utf-8"
-        )
+        (kb / "conceitos" / "peneira.md").write_text(fm.dumps(new_doc), encoding="utf-8")
 
         added, updated, removed = idx.update()
         assert added == 1

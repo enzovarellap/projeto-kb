@@ -1,4 +1,5 @@
 """Health check script for Docker HEALTHCHECK and monitoring platforms."""
+
 import json
 import os
 import sys
@@ -9,16 +10,18 @@ PORT = int(os.environ.get("PORT", "8000"))
 
 URL = f"http://127.0.0.1:{PORT}/mcp"
 
-INIT_PAYLOAD = json.dumps({
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "initialize",
-    "params": {
-        "protocolVersion": "2025-03-26",
-        "capabilities": {},
-        "clientInfo": {"name": "healthcheck", "version": "1.0"},
-    },
-}).encode()
+INIT_PAYLOAD = json.dumps(
+    {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-03-26",
+            "capabilities": {},
+            "clientInfo": {"name": "healthcheck", "version": "1.0"},
+        },
+    }
+).encode()
 
 
 def main() -> int:

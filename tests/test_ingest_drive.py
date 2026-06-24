@@ -2,6 +2,7 @@
 
 Todos os testes usam mocks — não requerem credentials.json nem acesso à internet.
 """
+
 import json
 import sys
 import textwrap
