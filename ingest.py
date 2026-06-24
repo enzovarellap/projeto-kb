@@ -6,6 +6,7 @@ Uso:
 Formatos suportados: .pdf, .docx, .md, .txt, .pptx, .csv
 Requer: markitdown, python-frontmatter
 """
+
 import argparse
 import re
 import sys
@@ -14,7 +15,6 @@ from pathlib import Path
 
 try:
     import frontmatter
-    from frontmatter.default_handlers import YAMLHandler
 except ImportError:
     print("ERRO: instale python-frontmatter  →  pip install python-frontmatter")
     sys.exit(2)
@@ -79,8 +79,7 @@ def _update_index(out_dir: Path, concepts: list[dict]) -> None:
     subfolder = out_dir.name
 
     links = "\n".join(
-        f"- [{c['title']}]({Path(c['path']).name}) — {c['description']}"
-        for c in concepts
+        f"- [{c['title']}]({Path(c['path']).name}) — {c['description']}" for c in concepts
     )
     body = f"# Índice — {subfolder}\n\nConceitos importados por `ingest.py`.\n\n{links}\n"
 
@@ -149,7 +148,9 @@ def ingest(src: Path, out: Path, tipo: str = "Conceito") -> list[Path]:
             dest.write_text(frontmatter.dumps(post), encoding="utf-8")
             action = "criado"
 
-        print(f"  {action}: {dest.relative_to(Path.cwd()) if dest.is_relative_to(Path.cwd()) else dest}")
+        print(
+            f"  {action}: {dest.relative_to(Path.cwd()) if dest.is_relative_to(Path.cwd()) else dest}"
+        )
         generated.append({"path": str(dest), "title": title, "description": description})
         _update_log(kb_root, f"{action} conceito `{slug}` a partir de `{src_file.name}`.")
 
@@ -161,8 +162,15 @@ def ingest(src: Path, out: Path, tipo: str = "Conceito") -> list[Path]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingere arquivos locais no bundle OKF.")
     parser.add_argument("--src", required=True, help="Pasta com arquivos a ingerir.")
-    parser.add_argument("--out", required=True, help="Subpasta de saída dentro do bundle (ex.: kb/importados).")
-    parser.add_argument("--type", default="Conceito", dest="tipo", help="Tipo OKF dos conceitos gerados (padrão: Conceito).")
+    parser.add_argument(
+        "--out", required=True, help="Subpasta de saída dentro do bundle (ex.: kb/importados)."
+    )
+    parser.add_argument(
+        "--type",
+        default="Conceito",
+        dest="tipo",
+        help="Tipo OKF dos conceitos gerados (padrão: Conceito).",
+    )
     args = parser.parse_args()
 
     src = Path(args.src)

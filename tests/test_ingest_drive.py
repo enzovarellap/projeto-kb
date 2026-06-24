@@ -2,15 +2,15 @@
 
 Todos os testes usam mocks — não requerem credentials.json nem acesso à internet.
 """
+
 import json
+import sys
 import textwrap
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-import sys
-import io
 
-import pytest
 import frontmatter
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -183,7 +183,7 @@ class TestFilterChangedFiles:
 
 class TestSyncState:
     def test_save_and_load(self, tmp_path):
-        from ingest_drive import save_sync_state, load_sync_state
+        from ingest_drive import load_sync_state, save_sync_state
 
         state_file = tmp_path / ".drive-sync.json"
         state = {

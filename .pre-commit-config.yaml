@@ -1,0 +1,17 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: validate-okf
+        name: Validate OKF bundle
+        entry: python validate_okf.py
+        language: python
+        pass_filenames: false
+        files: ^kb/.*\.md$
+        additional_dependencies: [python-frontmatter]

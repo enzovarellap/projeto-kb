@@ -5,6 +5,7 @@ Uso:
     python embeddings.py --update     # incremental (apenas novos/modificados)
     python embeddings.py --model paraphrase-multilingual-MiniLM-L12-v2  # modelo customizado
 """
+
 import hashlib
 import json
 import sys
@@ -193,7 +194,9 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Indexa o bundle OKF para busca semântica.")
-    parser.add_argument("--update", action="store_true", help="Incremental (apenas novos/modificados).")
+    parser.add_argument(
+        "--update", action="store_true", help="Incremental (apenas novos/modificados)."
+    )
     parser.add_argument("--kb", default=str(KB), help="Caminho raiz do bundle OKF.")
     parser.add_argument(
         "--model",

@@ -1,8 +1,10 @@
 """Testes para validate_okf.py."""
+
+import sys
 import textwrap
 from pathlib import Path
+
 import pytest
-import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from validate_okf import validate
@@ -79,7 +81,9 @@ def test_link_quebrado_reprova(bundle_valido: Path) -> None:
     )
     index.write_text(conteudo, encoding="utf-8")
     erros = validate(bundle_valido)
-    assert any("nao-existe" in e for e in erros), f"Esperava erro de link quebrado, mas erros foram: {erros}"
+    assert any("nao-existe" in e for e in erros), (
+        f"Esperava erro de link quebrado, mas erros foram: {erros}"
+    )
 
 
 def test_timestamp_invalido_reprova(bundle_valido: Path) -> None:
@@ -99,4 +103,6 @@ def test_timestamp_invalido_reprova(bundle_valido: Path) -> None:
         encoding="utf-8",
     )
     erros = validate(bundle_valido)
-    assert any("timestamp" in e.lower() for e in erros), f"Esperava erro de timestamp, mas erros foram: {erros}"
+    assert any("timestamp" in e.lower() for e in erros), (
+        f"Esperava erro de timestamp, mas erros foram: {erros}"
+    )

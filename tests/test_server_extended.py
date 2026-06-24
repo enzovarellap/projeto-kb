@@ -1,7 +1,7 @@
 """Testes estendidos para server.py — edge cases, limites, get_index, semantic_search."""
+import sys
 import textwrap
 from pathlib import Path
-import sys
 
 import pytest
 

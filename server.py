@@ -1,8 +1,11 @@
 import logging
 import os
-import unicodedata
-from pathlib import Path
 import re
+import time
+import unicodedata
+from collections import defaultdict
+from pathlib import Path
+
 import frontmatter
 from fastmcp import FastMCP
 from rapidfuzz import fuzz
@@ -31,6 +34,27 @@ mcp = FastMCP(
         "Comece pelos index e siga os outgoing_links."
     ),
 )
+
+# ---------------------------------------------------------------------------
+# Rate limiting simples (in-memory, por IP/session)
+# ---------------------------------------------------------------------------
+
+RATE_LIMIT_MAX = int(os.environ.get("RATE_LIMIT_MAX", "60"))
+RATE_LIMIT_WINDOW = int(os.environ.get("RATE_LIMIT_WINDOW", "60"))
+
+_rate_counts: dict[str, list[float]] = defaultdict(list)
+
+
+def _check_rate_limit(caller: str = "global") -> bool:
+    """Retorna True se dentro do limite, False se excedeu."""
+    now = time.time()
+    window_start = now - RATE_LIMIT_WINDOW
+    _rate_counts[caller] = [t for t in _rate_counts[caller] if t > window_start]
+    if len(_rate_counts[caller]) >= RATE_LIMIT_MAX:
+        return False
+    _rate_counts[caller].append(now)
+    return True
+
 
 # ---------------------------------------------------------------------------
 # Cache com invalidacao por mtime
@@ -99,6 +123,77 @@ def invalidate_cache() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Busca semantica (lazy-load do indice)
+# ---------------------------------------------------------------------------
+
+_semantic_index = None
+
+
+def _get_semantic_index():
+    global _semantic_index
+    if _semantic_index is not None:
+        return _semantic_index
+    try:
+        from embeddings import CHROMA_DIR, SemanticIndex
+
+        chroma_path = Path(CHROMA_DIR)
+        if chroma_path.exists():
+            _semantic_index = SemanticIndex(kb_root=KB, chroma_dir=chroma_path)
+            if _semantic_index.count() > 0:
+                log.info("Índice semântico carregado (%d docs)", _semantic_index.count())
+                return _semantic_index
+            _semantic_index = None
+    except Exception as exc:
+        log.warning("Índice semântico indisponível: %s", exc)
+        _semantic_index = None
+    return None
+
+
+_SEMANTIC_SCORE_THRESHOLD = 0.25
+
+
+def _semantic_search_impl(query: str, limit: int = 5) -> list[dict]:
+    """Busca semântica com fallback para keyword."""
+    raw = query.strip()
+    if not raw:
+        return [
+            {
+                "id": "",
+                "type": "",
+                "title": "Query vazia",
+                "description": "Forneça pelo menos um termo de busca.",
+            }
+        ]
+
+    idx = _get_semantic_index()
+    if idx is None:
+        log.info("semantic_search fallback → keyword search")
+        return _search_impl(raw, limit)
+
+    hits = idx.query(raw, n_results=limit)
+    log.info("semantic_search(%r) → %d hits", raw, len(hits))
+
+    if hits and hits[0]["score"] < _SEMANTIC_SCORE_THRESHOLD:
+        keyword_results = _search_impl(raw, limit)
+        seen_ids = {h["id"] for h in hits}
+        for kr in keyword_results:
+            if kr["id"] not in seen_ids:
+                hits.append(kr)
+                seen_ids.add(kr["id"])
+            if len(hits) >= limit:
+                break
+
+    return hits or [
+        {
+            "id": "",
+            "type": "",
+            "title": "Nada encontrado",
+            "description": f"Sem resultado para '{raw}'.",
+        }
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Scoring de relevancia
 # ---------------------------------------------------------------------------
 
@@ -148,12 +243,19 @@ def _score(doc: dict, terms: list[str]) -> float:
 # Implementacoes puras (sem decorador) — utilizadas diretamente nos testes.
 # ---------------------------------------------------------------------------
 
+
 def _search_impl(query: str, limit: int = 8, offset: int = 0) -> list[dict]:
     """Procura conceitos por palavra-chave. Suporta multiplos termos (AND)."""
     raw = query.strip()
     if not raw:
-        return [{"id": "", "type": "", "title": "Query vazia",
-                 "description": "Forneça pelo menos um termo de busca."}]
+        return [
+            {
+                "id": "",
+                "type": "",
+                "title": "Query vazia",
+                "description": "Forneça pelo menos um termo de busca.",
+            }
+        ]
 
     if len(raw) > MAX_QUERY_LENGTH:
         return [{"id": "", "type": "", "title": "Query muito longa",
@@ -166,20 +268,32 @@ def _search_impl(query: str, limit: int = 8, offset: int = 0) -> list[dict]:
     for d in _all():
         s = _score(d, terms)
         if s > 0:
-            scored.append((s, {
-                "id": d["id"], "type": d["type"],
-                "title": d["title"], "description": d["description"],
-            }))
+            scored.append(
+                (
+                    s,
+                    {
+                        "id": d["id"],
+                        "type": d["type"],
+                        "title": d["title"],
+                        "description": d["description"],
+                    },
+                )
+            )
 
     scored.sort(key=lambda x: x[0], reverse=True)
     hits = [item for _, item in scored]
 
-    page = hits[offset:offset + limit]
-    log.info("search(%r) → %d total, retornando %d (offset=%d)",
-             raw, len(hits), len(page), offset)
+    page = hits[offset : offset + limit]
+    log.info("search(%r) → %d total, retornando %d (offset=%d)", raw, len(hits), len(page), offset)
 
-    return page or [{"id": "", "type": "", "title": "Nada encontrado",
-                     "description": f"Sem resultado para '{raw}'."}]
+    return page or [
+        {
+            "id": "",
+            "type": "",
+            "title": "Nada encontrado",
+            "description": f"Sem resultado para '{raw}'.",
+        }
+    ]
 
 
 def _fetch_impl(id: str) -> dict:
@@ -189,14 +303,16 @@ def _fetch_impl(id: str) -> dict:
         if d["id"] == id:
             links = re.findall(r"\]\(([^)]+\.md)\)", d["body"])
             result = dict(d)
-            result["outgoing_links"] = [
-                lnk.replace(".md", "").lstrip("/") for lnk in links
-            ]
+            result["outgoing_links"] = [lnk.replace(".md", "").lstrip("/") for lnk in links]
             log.info("fetch(%r) → %s", id, result["title"])
             return result
     log.warning("fetch(%r) → não encontrado", id)
-    return {"id": id, "title": "Nao encontrado",
-            "body": f"Sem conceito '{id}'.", "outgoing_links": []}
+    return {
+        "id": id,
+        "title": "Nao encontrado",
+        "body": f"Sem conceito '{id}'.",
+        "outgoing_links": [],
+    }
 
 
 def _list_topics_impl() -> list[dict]:
@@ -209,12 +325,14 @@ def _list_topics_impl() -> list[dict]:
             for lnk in links:
                 child_id = lnk.replace(".md", "").lstrip("/")
                 children.append(child_id)
-            topics.append({
-                "id": d["id"],
-                "title": d["title"],
-                "type": d["type"],
-                "children": children,
-            })
+            topics.append(
+                {
+                    "id": d["id"],
+                    "title": d["title"],
+                    "type": d["type"],
+                    "children": children,
+                }
+            )
     log.info("list_topics → %d indices", len(topics))
     return topics
 
@@ -231,8 +349,7 @@ def _get_log_impl(last_n: int = 20) -> dict:
                 "total_entries": len(entries),
                 "entries": entries[-last_n:],
             }
-    return {"id": "log", "title": "Log não encontrado",
-            "total_entries": 0, "entries": []}
+    return {"id": "log", "title": "Log não encontrado", "total_entries": 0, "entries": []}
 
 
 def _get_stats_impl() -> dict:
@@ -304,7 +421,7 @@ def _load_semantic_index():
     if _semantic_index is not None:
         return _semantic_index
     try:
-        from embeddings import SemanticIndex, CHROMA_DIR
+        from embeddings import CHROMA_DIR, SemanticIndex
         chroma_path = Path(CHROMA_DIR)
         if chroma_path.exists():
             _semantic_index = SemanticIndex(kb_root=KB)
@@ -358,6 +475,7 @@ def _semantic_search_impl(query: str, limit: int = 5) -> list[dict]:
 # Wrappers registrados como tools MCP
 # ---------------------------------------------------------------------------
 
+
 @mcp.tool
 def search(query: str, limit: int = 8, offset: int = 0) -> list[dict]:
     """Procura conceitos por palavra-chave em title, description, tags e corpo.
@@ -375,6 +493,7 @@ def semantic_search(query: str, limit: int = 5) -> list[dict]:
     ordenados por score de similaridade (0-1). Faz fallback automático para
     busca por keyword se o índice semântico não estiver disponível."""
     return _semantic_search_impl(query, limit)
+
 
 @mcp.tool
 def fetch(id: str) -> dict:
