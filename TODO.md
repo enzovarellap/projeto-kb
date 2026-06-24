@@ -29,7 +29,7 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 ### 1.2 Novas tools MCP
 
 - [x] **`list_topics`**: retorna a árvore de pastas/índices do bundle com filhos resolvidos
-- [ ] **`get_index`**: retorna o conteúdo de um `index.md` específico com seus links — atalho para navegação sem precisar fetch genérico (coberto por `fetch` + `list_topics`, baixa prioridade)
+- [x] **`get_index`**: retorna o conteúdo de um `index.md` específico com seus links — atalho para navegação sem precisar fetch genérico
 - [x] **`get_log`**: retorna as últimas N entradas do `log.md`
 - [x] **`get_stats`**: retorna estatísticas do bundle — total, por tipo, pastas, último timestamp
 - [🔍] **`write_concept` / `update_concept`**: permitir que o assistente crie ou edite conceitos diretamente via MCP? (avaliar se faz sentido no fluxo do projeto — risco de corromper o bundle)
@@ -40,7 +40,7 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 - [x] **Tratamento de erros**: `frontmatter.load` com YAML malformado retorna doc de erro em vez de traceback
 - [x] **Logging estruturado**: logs com `logging` (INFO para chamadas, WARNING para erros de parse)
 - [x] **Proteção de query vazia**: queries vazias retornam mensagem orientativa
-- [ ] **Timeout e limites**: proteger contra queries muito amplas que retornam o bundle inteiro
+- [x] **Timeout e limites**: proteger contra queries muito amplas — `MAX_QUERY_LENGTH` (500 chars) e `MAX_RESULTS` (50) configuráveis via env var
 
 ---
 
@@ -80,17 +80,17 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 ### 4.1 Deploy do server para URL pública
 
 - [🔍] **Escolher plataforma de deploy**: avaliar Render vs. Railway vs. Fly.io vs. FastMCP Cloud `[🔍 pesquisar custo (free tier), latência, facilidade, suporte a streamable-http]`
-- [ ] **Dockerfile**: criar imagem Docker para o server
-- [ ] **Variáveis de ambiente**: externalizar `HOST`, `PORT`, `KB_PATH` para configuração via env vars
-- [ ] **Health check**: adicionar endpoint `/health` para monitoramento da plataforma
+- [x] **Dockerfile**: imagem Docker baseada em `python:3.12-slim` com healthcheck integrado
+- [x] **Variáveis de ambiente**: `HOST`, `PORT`, `KB_PATH`, `MAX_RESULTS`, `MAX_QUERY_LENGTH` via env vars (+ `.env.example`)
+- [x] **Health check**: endpoint `/health` via `@mcp.custom_route` retorna `{"status":"ok","documents":N}`
 - [ ] **CORS**: configurar CORS se necessário para acesso de clientes web `[🔍 verificar se fastmcp já lida com isso]`
 
 ### 4.2 CI/CD
 
-- [ ] **GitHub Actions — CI**: workflow que roda em cada push:
-  - [ ] `make validate` (validar bundle OKF)
-  - [ ] `make test` (rodar pytest)
-  - [ ] Lint com `ruff` ou `flake8`
+- [x] **GitHub Actions — CI**: `.github/workflows/ci.yml` roda em push/PR:
+  - [x] `make validate` (validar bundle OKF)
+  - [x] `make test` (rodar pytest com coverage)
+  - [x] Lint com `ruff`
 - [ ] **GitHub Actions — CD**: deploy automático ao fazer push na branch principal
 - [ ] **Pre-commit hooks**: `ruff check`, `validate_okf.py` antes de cada commit `[🔍 avaliar usar pre-commit framework]`
 
@@ -100,7 +100,7 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 - [ ] **Rate limiting**: limitar chamadas por minuto para evitar abuso
 - [ ] **HTTPS**: garantir que o deploy use TLS (geralmente resolvido pela plataforma)
 - [ ] **Secrets management**: credenciais do Drive e API keys em variáveis de ambiente, não no código
-- [ ] **`.env` + `.env.example`**: template de variáveis de ambiente necessárias
+- [x] **`.env` + `.env.example`**: template com todas as variáveis de ambiente documentadas
 
 ---
 
@@ -131,13 +131,12 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 
 ### 6.1 Testes
 
-- [ ] **Aumentar cobertura**: adicionar testes para:
-  - [ ] `ingest.py` — testar conversão de cada formato (PDF, DOCX, PPTX, CSV)
-  - [ ] Frontmatter malformado / encoding inválido
-  - [ ] Busca com caracteres especiais, strings vazias, queries muito longas
+- [x] **Aumentar cobertura**: testes adicionados:
+  - [x] `ingest.py` — slug, extract_title, convert, ingest (10 testes em `test_ingest.py`)
+  - [x] Busca com caracteres especiais, strings vazias, queries muito longas (`test_server_extended.py`)
   - [ ] Concorrência — múltiplas chamadas simultâneas ao server
 - [ ] **Testes de integração**: subir o server real e testar via cliente MCP (nota: `streamable-http` exige handshake `initialize` → `Mcp-Session-Id` antes de qualquer `tools/call`; ver seção "Testar via curl" no README)
-- [ ] **Coverage report**: configurar `pytest-cov` e definir threshold mínimo (ex: 80%)
+- [x] **Coverage report**: `pytest-cov` configurado com threshold 70% — `make test-cov`
 
 ### 6.2 Observabilidade
 

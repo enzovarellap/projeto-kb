@@ -1,4 +1,4 @@
-.PHONY: install serve validate ingest index index-update sync-drive test
+.PHONY: install serve validate ingest index index-update sync-drive test test-cov lint docker-build
 
 install:
 	pip install -r requirements.txt
@@ -23,3 +23,12 @@ sync-drive:
 
 test:
 	pytest tests/ -v
+
+test-cov:
+	pytest tests/ -v --cov=. --cov-report=term-missing --cov-fail-under=70
+
+lint:
+	ruff check .
+
+docker-build:
+	docker build -t projeto-kb .
