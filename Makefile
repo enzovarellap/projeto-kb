@@ -19,7 +19,7 @@ index-update:
 	python embeddings.py --update
 
 sync-drive:
-	python ingest_drive.py --folder-id $(FOLDER_ID) --out $(or $(OUT),kb/drive-import) $(if $(TYPE),--type $(TYPE),) $(if $(INCREMENTAL),--incremental,)
+	python ingest_drive.py --folder-id $(FOLDER_ID) --out $(or $(OUT),kb/drive-import) $(if $(TYPE),--type $(TYPE),) $(if $(INCREMENTAL),--incremental,) $(if $(RECURSIVE),--recursive,)
 
 test:
 	pytest tests/ -v
