@@ -361,6 +361,53 @@ class TestSyncDrive:
         assert "Google Drive" in log_content
 
 
+class TestSafeStem:
+    def test_preserves_name_with_internal_dots(self):
+        from ingest_drive import _safe_stem
+
+        assert _safe_stem("SDE 2026.2 - GERAL") == "SDE 2026.2 - GERAL"
+
+    def test_strips_known_extension(self):
+        from ingest_drive import _safe_stem
+
+        assert _safe_stem("Relatório Final.pdf") == "Relatório Final"
+        assert _safe_stem("planilha.csv") == "planilha"
+
+    def test_preserves_name_without_extension(self):
+        from ingest_drive import _safe_stem
+
+        assert _safe_stem("Meu Documento") == "Meu Documento"
+
+    def test_google_sheets_names_unique(self, tmp_path):
+        """Três Google Sheets com nomes similares devem gerar arquivos distintos."""
+        from ingest_drive import download_file
+
+        names = [
+            "SDE 2026.2 - EXTRUSORA (21h)",
+            "SDE 2026.2 - GERAL",
+            "SDE 2026.2 - TRITURADORA (19h)",
+        ]
+        paths = set()
+        for i, name in enumerate(names):
+            file_info = {
+                "id": f"sheet_{i}",
+                "name": name,
+                "mimeType": "application/vnd.google-apps.spreadsheet",
+                "modifiedTime": "2026-06-17T09:00:00.000Z",
+            }
+            service = _make_mock_service([], b"col1,col2\nval1,val2")
+
+            with patch("ingest_drive.MediaIoBaseDownload") as mock_dl:
+                mock_instance = MagicMock()
+                mock_instance.next_chunk.return_value = (None, True)
+                mock_dl.return_value = mock_instance
+
+                result = download_file(service, file_info, tmp_path)
+                paths.add(result.name)
+
+        assert len(paths) == 3
+
+
 class TestExportMimes:
     def test_google_docs_export_mapping(self):
         from ingest_drive import EXPORT_MIMES
