@@ -7,3 +7,6 @@ build/
 .env
 *.log
 .chroma/
+credentials.json
+token.json
+.drive-sync.json

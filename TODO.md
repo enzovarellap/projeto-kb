@@ -59,17 +59,17 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 - [ ] **Criar projeto no Google Cloud Console** (ação manual do Enzo)
 - [ ] **Habilitar Google Drive API** (ação manual do Enzo)
 - [ ] **Gerar credenciais OAuth 2.0** e salvar como `credentials.json` (ação manual do Enzo)
-- [ ] **Implementar `ingest_drive.py`**: usando `google-api-python-client` + `google-auth-oauthlib`
-  - [ ] Autenticação OAuth 2.0 com fluxo de consent
-  - [ ] Listar arquivos de uma pasta do Drive por ID
-  - [ ] Download de arquivos (PDF, DOCX, PPTX, Sheets → CSV)
-  - [ ] Chamar `ingest.py` existente para converter → OKF
-  - [ ] Idempotência: identificar arquivos já importados pelo `resource: drive://<id>`
-  - [ ] Atualizar `log.md` com registro da sincronização
-- [ ] **Sincronização incremental**: verificar `modifiedTime` do Drive para reimportar apenas alterados
-- [ ] **Comando Make**: `make sync-drive FOLDER_ID=xxx`
-- [ ] **Testes**: mockar a API do Drive para testar o pipeline de ingestão
-- [🔍] **Alternativa: Google Drive MCP nativo**: em vez de implementar ingestão própria, avaliar se o MCP server pode consumir o Google Drive diretamente via MCP bridge `[🔍 pesquisar se existe MCP server de Google Drive pronto]`
+- [x] **Implementar `ingest_drive.py`**: usando `google-api-python-client` + `google-auth-oauthlib`
+  - [x] Autenticação OAuth 2.0 com fluxo de consent (+ cache de token em `token.json`)
+  - [x] Listar arquivos de uma pasta do Drive por ID (paginação automática)
+  - [x] Download de arquivos (PDF, DOCX, PPTX, Sheets → CSV, Google Docs → DOCX, Slides → PPTX)
+  - [x] Chamar `ingest.py` existente para converter → OKF
+  - [x] Idempotência: identificar arquivos já importados pelo `resource: drive://<id>`
+  - [x] Atualizar `log.md` com registro da sincronização
+- [x] **Sincronização incremental**: verificar `modifiedTime` do Drive via `.drive-sync.json` para reimportar apenas alterados
+- [x] **Comando Make**: `make sync-drive FOLDER_ID=xxx [OUT=kb/subpasta] [TYPE=Tipo] [INCREMENTAL=1]`
+- [x] **Testes**: 17 testes mockando a API do Drive — list, download, export, filter, sync state, idempotência, log
+- [x] **Alternativa: Google Drive MCP nativo**: avaliado — existe MCP server de Google Drive disponível, mas a ingestão própria foi implementada para permitir uso standalone (CI/CD, scripts, sem depender de sessão MCP)
 
 ---
 
