@@ -101,19 +101,19 @@ def build_drive_service(creds: Credentials):
     return build("drive", "v3", credentials=creds)
 
 
-def list_files(service, folder_id: str) -> list[dict]:
-    """Lista todos os arquivos (não-pastas) de uma pasta do Drive.
-
-    Retorna lista de dicts com id, name, mimeType, modifiedTime.
-    """
+def _list_items(service, folder_id: str, mime_filter: str = "") -> list[dict]:
+    """Lista itens de uma pasta do Drive com filtro de mimeType opcional."""
     results = []
     page_token = None
+    q = f"'{folder_id}' in parents and trashed = false"
+    if mime_filter:
+        q += f" and {mime_filter}"
 
     while True:
         response = (
             service.files()
             .list(
-                q=f"'{folder_id}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'",
+                q=q,
                 fields="nextPageToken, files(id, name, mimeType, modifiedTime)",
                 pageToken=page_token,
                 orderBy="name",
@@ -129,6 +129,58 @@ def list_files(service, folder_id: str) -> list[dict]:
     return results
 
 
+def list_files(service, folder_id: str) -> list[dict]:
+    """Lista todos os arquivos (não-pastas) de uma pasta do Drive.
+
+    Retorna lista de dicts com id, name, mimeType, modifiedTime.
+    """
+    return _list_items(
+        service,
+        folder_id,
+        mime_filter="mimeType != 'application/vnd.google-apps.folder'",
+    )
+
+
+def list_folders(service, folder_id: str) -> list[dict]:
+    """Lista subpastas diretas de uma pasta do Drive."""
+    return _list_items(
+        service,
+        folder_id,
+        mime_filter="mimeType = 'application/vnd.google-apps.folder'",
+    )
+
+
+def list_files_recursive(service, folder_id: str, prefix: str = "") -> list[dict]:
+    """Lista todos os arquivos recursivamente, incluindo subpastas.
+
+    Cada arquivo retornado inclui um campo extra 'subfolder' com o caminho
+    relativo da subpasta (string vazia para arquivos na raiz).
+    """
+    files = list_files(service, folder_id)
+    for f in files:
+        f["subfolder"] = prefix
+
+    for folder in list_folders(service, folder_id):
+        folder_name = _slug(folder["name"])
+        sub_prefix = f"{prefix}/{folder_name}" if prefix else folder_name
+        files.extend(list_files_recursive(service, folder["id"], sub_prefix))
+
+    return files
+
+
+def _safe_stem(name: str) -> str:
+    """Extrai o nome base sem extensão, seguro para nomes com pontos internos.
+
+    Path("SDE 2026.2 - GERAL").stem retorna "SDE 2026" (errado).
+    Esta função remove apenas extensões conhecidas.
+    """
+    known_exts = {".pdf", ".docx", ".pptx", ".csv", ".txt", ".md", ".xlsx"}
+    p = Path(name)
+    if p.suffix.lower() in known_exts:
+        return p.stem
+    return name
+
+
 def download_file(service, file_info: dict, dest_dir: Path) -> Path | None:
     """Baixa um arquivo do Drive para dest_dir. Exporta Google Docs nativos."""
     mime = file_info["mimeType"]
@@ -137,11 +189,11 @@ def download_file(service, file_info: dict, dest_dir: Path) -> Path | None:
 
     if mime in EXPORT_MIMES:
         export_mime, ext = EXPORT_MIMES[mime]
-        dest = dest_dir / f"{Path(name).stem}{ext}"
+        dest = dest_dir / f"{_safe_stem(name)}{ext}"
         request = service.files().export_media(fileId=file_id, mimeType=export_mime)
     elif mime in SUPPORTED_MIMES:
         ext = SUPPORTED_MIMES[mime]
-        stem = Path(name).stem
+        stem = _safe_stem(name)
         dest = dest_dir / f"{stem}{ext}"
         request = service.files().get_media(fileId=file_id)
     else:
@@ -204,6 +256,7 @@ def sync_drive(
     out: Path,
     tipo: str = "Conceito",
     incremental: bool = False,
+    recursive: bool = False,
     service=None,
     credentials_file: Path = CREDENTIALS_FILE,
     token_file: Path = TOKEN_FILE,
@@ -216,6 +269,7 @@ def sync_drive(
         out: Diretório de saída dentro do bundle (ex: kb/drive-import).
         tipo: Tipo OKF dos conceitos gerados.
         incremental: Se True, sincroniza apenas arquivos modificados.
+        recursive: Se True, processa subpastas recursivamente.
         service: Serviço do Drive (para injeção em testes).
         credentials_file: Caminho para credentials.json.
         token_file: Caminho para token.json.
@@ -228,8 +282,15 @@ def sync_drive(
         creds = authenticate(credentials_file, token_file)
         service = build_drive_service(creds)
 
-    print(f"Listando arquivos da pasta '{folder_id}'...")
-    all_files = list_files(service, folder_id)
+    print(f"Listando arquivos da pasta '{folder_id}'" + (" (recursivo)..." if recursive else "..."))
+
+    if recursive:
+        all_files = list_files_recursive(service, folder_id)
+    else:
+        all_files = list_files(service, folder_id)
+        for f in all_files:
+            f["subfolder"] = ""
+
     print(f"  {len(all_files)} arquivo(s) encontrado(s).")
 
     if not all_files:
@@ -249,47 +310,62 @@ def sync_drive(
 
     out.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.TemporaryDirectory(prefix="drive-sync-") as tmp:
-        tmp_dir = Path(tmp)
-        downloaded = []
+    groups: dict[str, list[dict]] = {}
+    for f in files:
+        sub = f.get("subfolder", "")
+        groups.setdefault(sub, []).append(f)
 
-        for f in files:
-            print(f"  Baixando: {f['name']}...")
-            dest = download_file(service, f, tmp_dir)
-            if dest:
-                downloaded.append((f, dest))
+    all_generated: list[Path] = []
 
-        if not downloaded:
-            print("Nenhum arquivo suportado para converter.")
-            return []
+    for subfolder, group_files in sorted(groups.items()):
+        target_dir = out / subfolder if subfolder else out
+        target_dir.mkdir(parents=True, exist_ok=True)
 
-        for f, local_path in downloaded:
-            resource = _resource_id(f["id"])
-            existing = _find_existing_by_resource(out, resource)
-            if existing and existing.exists():
-                post = frontmatter.load(existing)
-                post["resource"] = resource
-                post["timestamp"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                existing.write_text(frontmatter.dumps(post), encoding="utf-8")
+        if subfolder:
+            print(f"\n  Subpasta: {subfolder}/")
 
-        generated = ingest(tmp_dir, out, tipo)
+        with tempfile.TemporaryDirectory(prefix="drive-sync-") as tmp:
+            tmp_dir = Path(tmp)
+            downloaded = []
 
-        for f, local_path in downloaded:
-            resource = _resource_id(f["id"])
-            slug = _slug(local_path.name)
-            concept_path = out / f"{slug}.md"
-            if concept_path.exists():
-                post = frontmatter.load(concept_path)
-                post["resource"] = resource
-                concept_path.write_text(frontmatter.dumps(post), encoding="utf-8")
+            for f in group_files:
+                print(f"  Baixando: {f['name']}...")
+                dest = download_file(service, f, tmp_dir)
+                if dest:
+                    downloaded.append((f, dest))
 
-        for f in files:
-            sync_state[f["id"]] = {
-                "name": f["name"],
-                "mimeType": f["mimeType"],
-                "modifiedTime": f["modifiedTime"],
-            }
-        save_sync_state(sync_state, state_file)
+            if not downloaded:
+                continue
+
+            for f, local_path in downloaded:
+                resource = _resource_id(f["id"])
+                existing = _find_existing_by_resource(target_dir, resource)
+                if existing and existing.exists():
+                    post = frontmatter.load(existing)
+                    post["resource"] = resource
+                    post["timestamp"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    existing.write_text(frontmatter.dumps(post), encoding="utf-8")
+
+            generated = ingest(tmp_dir, target_dir, tipo)
+
+            for f, local_path in downloaded:
+                resource = _resource_id(f["id"])
+                slug = _slug(local_path.name)
+                concept_path = target_dir / f"{slug}.md"
+                if concept_path.exists():
+                    post = frontmatter.load(concept_path)
+                    post["resource"] = resource
+                    concept_path.write_text(frontmatter.dumps(post), encoding="utf-8")
+
+            all_generated.extend(generated)
+
+    for f in files:
+        sync_state[f["id"]] = {
+            "name": f["name"],
+            "mimeType": f["mimeType"],
+            "modifiedTime": f["modifiedTime"],
+        }
+    save_sync_state(sync_state, state_file)
 
     kb_root = out.parent
     while not (kb_root / "log.md").exists() and kb_root != kb_root.parent:
@@ -297,14 +373,15 @@ def sync_drive(
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     mode = "incremental" if incremental else "completa"
+    recurse_label = " recursiva" if recursive else ""
     _update_log(
         kb_root,
-        f"Sincronização {mode} do Google Drive (pasta `{folder_id}`): "
-        f"{len(generated)} conceito(s) sincronizado(s) em `{now}`.",
+        f"Sincronização {mode}{recurse_label} do Google Drive (pasta `{folder_id}`): "
+        f"{len(all_generated)} conceito(s) sincronizado(s) em `{now}`.",
     )
 
-    print(f"\nSincronização concluída: {len(generated)} conceito(s).")
-    return generated
+    print(f"\nSincronização concluída: {len(all_generated)} conceito(s).")
+    return all_generated
 
 
 def main() -> None:
@@ -332,6 +409,11 @@ def main() -> None:
         action="store_true",
         help="Sincroniza apenas arquivos novos ou modificados.",
     )
+    parser.add_argument(
+        "--recursive",
+        action="store_true",
+        help="Processa subpastas recursivamente, espelhando a estrutura no bundle.",
+    )
     args = parser.parse_args()
 
     sync_drive(
@@ -339,6 +421,7 @@ def main() -> None:
         out=Path(args.out),
         tipo=args.tipo,
         incremental=args.incremental,
+        recursive=args.recursive,
     )
 
 

@@ -361,6 +361,196 @@ class TestSyncDrive:
         assert "Google Drive" in log_content
 
 
+class TestSafeStem:
+    def test_preserves_name_with_internal_dots(self):
+        from ingest_drive import _safe_stem
+
+        assert _safe_stem("SDE 2026.2 - GERAL") == "SDE 2026.2 - GERAL"
+
+    def test_strips_known_extension(self):
+        from ingest_drive import _safe_stem
+
+        assert _safe_stem("Relatório Final.pdf") == "Relatório Final"
+        assert _safe_stem("planilha.csv") == "planilha"
+
+    def test_preserves_name_without_extension(self):
+        from ingest_drive import _safe_stem
+
+        assert _safe_stem("Meu Documento") == "Meu Documento"
+
+    def test_google_sheets_names_unique(self, tmp_path):
+        """Três Google Sheets com nomes similares devem gerar arquivos distintos."""
+        from ingest_drive import download_file
+
+        names = [
+            "SDE 2026.2 - EXTRUSORA (21h)",
+            "SDE 2026.2 - GERAL",
+            "SDE 2026.2 - TRITURADORA (19h)",
+        ]
+        paths = set()
+        for i, name in enumerate(names):
+            file_info = {
+                "id": f"sheet_{i}",
+                "name": name,
+                "mimeType": "application/vnd.google-apps.spreadsheet",
+                "modifiedTime": "2026-06-17T09:00:00.000Z",
+            }
+            service = _make_mock_service([], b"col1,col2\nval1,val2")
+
+            with patch("ingest_drive.MediaIoBaseDownload") as mock_dl:
+                mock_instance = MagicMock()
+                mock_instance.next_chunk.return_value = (None, True)
+                mock_dl.return_value = mock_instance
+
+                result = download_file(service, file_info, tmp_path)
+                paths.add(result.name)
+
+        assert len(paths) == 3
+
+
+class TestRecursive:
+    def test_list_folders(self):
+        from ingest_drive import list_folders
+
+        folders = [
+            {
+                "id": "folder_sub1",
+                "name": "Subpasta A",
+                "mimeType": "application/vnd.google-apps.folder",
+                "modifiedTime": "2026-06-17T12:00:00.000Z",
+            }
+        ]
+        service = _make_mock_service(folders)
+        result = list_folders(service, "parent_folder")
+        assert len(result) == 1
+        assert result[0]["name"] == "Subpasta A"
+
+    def test_list_files_recursive_flat(self):
+        """Pasta sem subpastas retorna arquivos com subfolder vazio."""
+        from ingest_drive import list_files_recursive
+
+        service = MagicMock()
+
+        def mock_list(q, fields, pageToken, orderBy):
+            mock_resp = MagicMock()
+            if "mimeType != " in q:
+                mock_resp.execute.return_value = {
+                    "files": [FAKE_FILES[0]],
+                    "nextPageToken": None,
+                }
+            else:
+                mock_resp.execute.return_value = {
+                    "files": [],
+                    "nextPageToken": None,
+                }
+            return mock_resp
+
+        service.files().list = mock_list
+
+        result = list_files_recursive(service, "root_folder")
+        assert len(result) == 1
+        assert result[0]["subfolder"] == ""
+
+    def test_list_files_recursive_with_subfolder(self):
+        """Pasta com subpasta retorna arquivos com subfolder preenchido."""
+        from ingest_drive import list_files_recursive
+
+        subfolder = {
+            "id": "folder_sub1",
+            "name": "Documentos Técnicos",
+            "mimeType": "application/vnd.google-apps.folder",
+            "modifiedTime": "2026-06-17T12:00:00.000Z",
+        }
+        sub_file = {
+            "id": "file_in_sub",
+            "name": "specs.md",
+            "mimeType": "text/markdown",
+            "modifiedTime": "2026-06-18T10:00:00.000Z",
+        }
+
+        service = MagicMock()
+        call_count = {"n": 0}
+
+        def mock_list(q, fields, pageToken, orderBy):
+            mock_resp = MagicMock()
+            call_count["n"] += 1
+
+            if "'root_folder'" in q and "mimeType != " in q:
+                mock_resp.execute.return_value = {
+                    "files": [FAKE_FILES[0]],
+                    "nextPageToken": None,
+                }
+            elif "'root_folder'" in q and "mimeType = " in q:
+                mock_resp.execute.return_value = {
+                    "files": [subfolder],
+                    "nextPageToken": None,
+                }
+            elif "'folder_sub1'" in q and "mimeType != " in q:
+                mock_resp.execute.return_value = {
+                    "files": [sub_file],
+                    "nextPageToken": None,
+                }
+            else:
+                mock_resp.execute.return_value = {
+                    "files": [],
+                    "nextPageToken": None,
+                }
+            return mock_resp
+
+        service.files().list = mock_list
+
+        result = list_files_recursive(service, "root_folder")
+        assert len(result) == 2
+
+        root_files = [f for f in result if f["subfolder"] == ""]
+        sub_files = [f for f in result if f["subfolder"] != ""]
+        assert len(root_files) == 1
+        assert len(sub_files) == 1
+        assert sub_files[0]["subfolder"] == "documentos-técnicos"
+        assert sub_files[0]["name"] == "specs.md"
+
+    def test_sync_recursive_creates_subdirs(self, kb_bundle, tmp_path):
+        """Sync recursivo cria subpastas correspondentes no bundle."""
+        kb, out = kb_bundle
+        state_file = tmp_path / ".drive-sync.json"
+
+        root_file = {
+            "id": "file_root",
+            "name": "readme.md",
+            "mimeType": "text/markdown",
+            "modifiedTime": "2026-06-17T10:00:00.000Z",
+            "subfolder": "",
+        }
+        sub_file = {
+            "id": "file_sub",
+            "name": "detalhe.md",
+            "mimeType": "text/markdown",
+            "modifiedTime": "2026-06-17T11:00:00.000Z",
+            "subfolder": "metodos",
+        }
+
+        service = _make_mock_service([], b"# Conteudo\n\nTexto de teste.")
+
+        with patch("ingest_drive.list_files_recursive", return_value=[root_file, sub_file]):
+            with patch("ingest_drive.MediaIoBaseDownload") as mock_dl:
+                mock_instance = MagicMock()
+                mock_instance.next_chunk.return_value = (None, True)
+                mock_dl.return_value = mock_instance
+
+                from ingest_drive import sync_drive
+
+                result = sync_drive(
+                    folder_id="test_folder",
+                    out=out,
+                    service=service,
+                    state_file=state_file,
+                    recursive=True,
+                )
+
+        assert len(result) > 0
+        assert (out / "metodos").is_dir()
+
+
 class TestExportMimes:
     def test_google_docs_export_mapping(self):
         from ingest_drive import EXPORT_MIMES
