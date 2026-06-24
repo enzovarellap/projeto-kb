@@ -1,8 +1,11 @@
 import logging
-import unicodedata
-from pathlib import Path
-import logging
+import os
 import re
+import time
+import unicodedata
+from collections import defaultdict
+from pathlib import Path
+
 import frontmatter
 from fastmcp import FastMCP
 from rapidfuzz import fuzz
@@ -14,7 +17,9 @@ logging.basicConfig(
 )
 log = logging.getLogger("projeto-kb")
 
-KB = Path(__file__).parent / "kb"
+KB = Path(os.environ.get("KB_PATH", Path(__file__).parent / "kb"))
+HOST = os.environ.get("HOST", "127.0.0.1")
+PORT = int(os.environ.get("PORT", "8000"))
 
 mcp = FastMCP(
     name="projeto-kb",
@@ -26,6 +31,26 @@ mcp = FastMCP(
         "Comece pelos index e siga os outgoing_links."
     ),
 )
+
+# ---------------------------------------------------------------------------
+# Rate limiting simples (in-memory, por IP/session)
+# ---------------------------------------------------------------------------
+
+RATE_LIMIT_MAX = int(os.environ.get("RATE_LIMIT_MAX", "60"))
+RATE_LIMIT_WINDOW = int(os.environ.get("RATE_LIMIT_WINDOW", "60"))
+
+_rate_counts: dict[str, list[float]] = defaultdict(list)
+
+
+def _check_rate_limit(caller: str = "global") -> bool:
+    """Retorna True se dentro do limite, False se excedeu."""
+    now = time.time()
+    window_start = now - RATE_LIMIT_WINDOW
+    _rate_counts[caller] = [t for t in _rate_counts[caller] if t > window_start]
+    if len(_rate_counts[caller]) >= RATE_LIMIT_MAX:
+        return False
+    _rate_counts[caller].append(now)
+    return True
 
 # ---------------------------------------------------------------------------
 # Cache com invalidacao por mtime
@@ -91,6 +116,64 @@ def invalidate_cache() -> None:
     """Força recarga na próxima chamada (útil em testes)."""
     global _cache, _cache_mtime
     _cache, _cache_mtime = [], 0.0
+
+
+# ---------------------------------------------------------------------------
+# Busca semantica (lazy-load do indice)
+# ---------------------------------------------------------------------------
+
+_semantic_index = None
+
+
+def _get_semantic_index():
+    global _semantic_index
+    if _semantic_index is not None:
+        return _semantic_index
+    try:
+        from embeddings import CHROMA_DIR, SemanticIndex
+        chroma_path = Path(CHROMA_DIR)
+        if chroma_path.exists():
+            _semantic_index = SemanticIndex(kb_root=KB, chroma_dir=chroma_path)
+            if _semantic_index.count() > 0:
+                log.info("Índice semântico carregado (%d docs)", _semantic_index.count())
+                return _semantic_index
+            _semantic_index = None
+    except Exception as exc:
+        log.warning("Índice semântico indisponível: %s", exc)
+        _semantic_index = None
+    return None
+
+
+_SEMANTIC_SCORE_THRESHOLD = 0.25
+
+
+def _semantic_search_impl(query: str, limit: int = 5) -> list[dict]:
+    """Busca semântica com fallback para keyword."""
+    raw = query.strip()
+    if not raw:
+        return [{"id": "", "type": "", "title": "Query vazia",
+                 "description": "Forneça pelo menos um termo de busca."}]
+
+    idx = _get_semantic_index()
+    if idx is None:
+        log.info("semantic_search fallback → keyword search")
+        return _search_impl(raw, limit)
+
+    hits = idx.query(raw, n_results=limit)
+    log.info("semantic_search(%r) → %d hits", raw, len(hits))
+
+    if hits and hits[0]["score"] < _SEMANTIC_SCORE_THRESHOLD:
+        keyword_results = _search_impl(raw, limit)
+        seen_ids = {h["id"] for h in hits}
+        for kr in keyword_results:
+            if kr["id"] not in seen_ids:
+                hits.append(kr)
+                seen_ids.add(kr["id"])
+            if len(hits) >= limit:
+                break
+
+    return hits or [{"id": "", "type": "", "title": "Nada encontrado",
+                     "description": f"Sem resultado para '{raw}'."}]
 
 
 # ---------------------------------------------------------------------------
@@ -294,4 +377,4 @@ def get_stats() -> dict:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http", host="127.0.0.1", port=8000)
+    mcp.run(transport="streamable-http", host=HOST, port=PORT)

@@ -1,8 +1,6 @@
 """Testes para busca semântica (embeddings.py + semantic_search no server)."""
-import json
-import textwrap
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import pytest
 

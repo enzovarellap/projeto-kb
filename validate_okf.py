@@ -1,8 +1,8 @@
 """Validador de conformidade OKF para o bundle em kb/."""
-import sys
-from pathlib import Path
 import datetime
 import re
+import sys
+from pathlib import Path
 
 try:
     import frontmatter

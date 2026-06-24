@@ -1,4 +1,4 @@
-.PHONY: install serve validate ingest index index-update sync-drive test
+.PHONY: install serve validate ingest index index-update sync-drive test lint format docker docker-run pre-commit-install
 
 install:
 	pip install -r requirements.txt
@@ -23,3 +23,18 @@ sync-drive:
 
 test:
 	pytest tests/ -v
+
+lint:
+	ruff check .
+
+format:
+	ruff format .
+
+docker:
+	docker build -t projeto-kb .
+
+docker-run:
+	docker run -p 8000:8000 --env-file .env projeto-kb
+
+pre-commit-install:
+	pip install pre-commit && pre-commit install

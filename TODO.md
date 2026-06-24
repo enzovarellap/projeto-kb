@@ -80,27 +80,29 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 ### 4.1 Deploy do server para URL pública
 
 - [🔍] **Escolher plataforma de deploy**: avaliar Render vs. Railway vs. Fly.io vs. FastMCP Cloud `[🔍 pesquisar custo (free tier), latência, facilidade, suporte a streamable-http]`
-- [ ] **Dockerfile**: criar imagem Docker para o server
-- [ ] **Variáveis de ambiente**: externalizar `HOST`, `PORT`, `KB_PATH` para configuração via env vars
-- [ ] **Health check**: adicionar endpoint `/health` para monitoramento da plataforma
-- [ ] **CORS**: configurar CORS se necessário para acesso de clientes web `[🔍 verificar se fastmcp já lida com isso]`
+- [x] **Dockerfile**: imagem Docker criada (`Dockerfile` + `.dockerignore`)
+- [x] **Variáveis de ambiente**: `HOST`, `PORT`, `KB_PATH`, `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW` externalizados via `os.environ`
+- [x] **Health check**: `healthcheck.py` — script standalone que testa o endpoint MCP via `initialize` (usado pelo Docker `HEALTHCHECK`)
+- [🔍] **CORS**: verificar se FastMCP já lida com isso `[🔍 pesquisar — ver prompt de pesquisa abaixo]`
 
 ### 4.2 CI/CD
 
-- [ ] **GitHub Actions — CI**: workflow que roda em cada push:
-  - [ ] `make validate` (validar bundle OKF)
-  - [ ] `make test` (rodar pytest)
-  - [ ] Lint com `ruff` ou `flake8`
-- [ ] **GitHub Actions — CD**: deploy automático ao fazer push na branch principal
-- [ ] **Pre-commit hooks**: `ruff check`, `validate_okf.py` antes de cada commit `[🔍 avaliar usar pre-commit framework]`
+- [x] **GitHub Actions — CI**: `.github/workflows/ci.yml` com 4 jobs:
+  - [x] `lint` — `ruff check` + `ruff format --check`
+  - [x] `test` — `make validate` + `pytest`
+  - [x] `validate-bundle` — valida OKF standalone
+  - [x] `docker` — build + healthcheck da imagem Docker
+- [ ] **GitHub Actions — CD**: deploy automático ao fazer push na branch principal `[depende da escolha da plataforma — Fase 4.1]`
+- [x] **Pre-commit hooks**: `.pre-commit-config.yaml` com `ruff` (lint + format) e `validate_okf.py` (validação do bundle)
+- [x] **Ruff config**: `ruff.toml` configurado para Python 3.11, E/F/W/I rules
 
 ### 4.3 Segurança
 
-- [ ] **Autenticação do MCP server**: adicionar API key ou token Bearer para proteger o acesso `[🔍 pesquisar como FastMCP lida com autenticação — middleware? decorator?]`
-- [ ] **Rate limiting**: limitar chamadas por minuto para evitar abuso
-- [ ] **HTTPS**: garantir que o deploy use TLS (geralmente resolvido pela plataforma)
-- [ ] **Secrets management**: credenciais do Drive e API keys em variáveis de ambiente, não no código
-- [ ] **`.env` + `.env.example`**: template de variáveis de ambiente necessárias
+- [🔍] **Autenticação do MCP server**: `[🔍 pesquisar — ver prompt de pesquisa abaixo]`
+- [x] **Rate limiting**: rate limiter in-memory implementado em `server.py` (60 req/min por caller, configurável via env vars)
+- [ ] **HTTPS**: resolvido pela plataforma de deploy (Render/Railway/Fly.io proveem TLS automático)
+- [x] **Secrets management**: todas as configs externalizadas via variáveis de ambiente
+- [x] **`.env` + `.env.example`**: template `.env.example` criado com todas as variáveis documentadas
 
 ---
 
@@ -173,16 +175,114 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 | 10 | Gemini + MCP | O Gemini já suporta MCP nativamente em 2026? |
 | 11 | Observabilidade | O que a plataforma de deploy escolhida oferece de monitoring grátis? |
 | 12 | Multi-idioma | Modelos atuais lidam bem com KB inteiramente em PT-BR? |
-| 13 | Pre-commit | Vale usar o framework `pre-commit` para hooks? |
+| ~~13~~ | ~~Pre-commit~~ | ~~Resolvido: `.pre-commit-config.yaml` com ruff + validate_okf~~ |
+
+---
+
+## Prompts de pesquisa para itens [🔍] pendentes
+
+Use estes prompts no Claude para pesquisar os itens que requerem input humano:
+
+### 🔍 #6 — Plataforma de deploy (Render vs Railway vs Fly.io)
+
+```
+Preciso fazer deploy de um MCP server Python (usando FastMCP com transporte streamable-http)
+que serve um knowledge base via endpoint HTTP em /mcp. O server é stateless (lê arquivos .md
+do disco) e roda com `python server.py` escutando na porta 8000.
+
+Compare as seguintes plataformas para deploy:
+1. Render (free tier)
+2. Railway (free tier / Hobby)
+3. Fly.io (free tier)
+4. FastMCP Cloud (se existir em 2026)
+
+Para cada uma, avalie:
+- Custo mensal (free tier vs. plano pago mínimo)
+- Suporte a Docker (preciso rodar imagem customizada)
+- Suporte a long-lived HTTP connections (streamable-http usa SSE)
+- Latência típica para requests HTTP
+- Facilidade de setup (CLI, GitHub integration)
+- Limitações do free tier (sleep after inactivity? request limits?)
+- Suporte a variáveis de ambiente / secrets
+- TLS/HTTPS automático
+- Custom domain
+
+Qual plataforma você recomenda para um projeto acadêmico com uso moderado
+(~100 requests/dia, 1-3 usuários simultâneos)?
+```
+
+### 🔍 #7 — CORS no FastMCP
+
+```
+Estou usando FastMCP (versão >=2.10.6) com transporte streamable-http em Python.
+Meu server MCP será acessado de clientes web (Claude Desktop, Custom GPT, etc.)
+que podem rodar em domínios diferentes.
+
+1. O FastMCP já configura CORS automaticamente no transporte streamable-http?
+2. Se não, como configuro CORS? Preciso usar um middleware ASGI (como CORSMiddleware
+   do Starlette) ou existe uma opção nativa no FastMCP?
+3. Quais origins devo permitir para que Claude Desktop e ChatGPT consigam acessar?
+4. Mostre um exemplo de código para configurar CORS no server FastMCP.
+```
+
+### 🔍 #8 — Autenticação no FastMCP
+
+```
+Tenho um MCP server Python usando FastMCP (>=2.10.6) com transporte streamable-http.
+Quero proteger o acesso com autenticação (API key ou Bearer token).
+
+1. O FastMCP tem suporte nativo a autenticação? Se sim, como configurar?
+2. Se não, qual a melhor forma de adicionar autenticação?
+   - Middleware ASGI?
+   - Decorator nas tools?
+   - Proxy reverso (nginx/caddy)?
+3. Como o Claude Desktop envia credenciais ao conectar em um MCP server remoto?
+   O `claude_desktop_config.json` suporta headers customizados?
+4. Como o ChatGPT envia credenciais ao chamar uma Action (OpenAPI)?
+5. Mostre um exemplo de código para proteger o server com API key via header.
+```
+
+### 🔍 #9 — ChatGPT Custom GPT Actions
+
+```
+Quero expor meu MCP server como uma Custom GPT Action no ChatGPT.
+O server tem estas tools:
+- search(query, limit, offset) → busca por keyword
+- semantic_search(query, limit) → busca semântica
+- fetch(id) → retorna conceito completo
+- list_topics() → árvore de navegação
+- get_log(last_n) → histórico
+- get_stats() → estatísticas
+
+1. Qual o formato atual (2026) da spec OpenAPI que o ChatGPT espera para Actions?
+2. Preciso de uma API REST separada ou posso apontar diretamente para o endpoint MCP?
+3. Como configurar autenticação (API key) para a Action?
+4. Existem limitações de rate limiting ou tamanho de resposta?
+5. Gere um exemplo de spec OpenAPI para estas 6 tools.
+```
+
+### 🔍 #10 — Gemini + MCP
+
+```
+Quero conectar o Google Gemini ao meu MCP server (FastMCP, streamable-http).
+
+1. O Gemini (API ou Google AI Studio) já suporta MCP nativamente em 2026?
+2. Se não, quais são as alternativas?
+   - Existe um proxy MCP → Gemini function calling?
+   - Posso usar a API REST do Gemini com tool definitions mapeadas das MCP tools?
+3. Se suporta, como configurar a conexão (URL, auth)?
+4. Qual o formato que o Gemini espera para function declarations?
+   É compatível com o JSON Schema do MCP?
+```
 
 ---
 
 ## Ordem sugerida de execução
 
 ```
-Fase 1 (robustez)     ████████░░  ← próxima — melhora o que já existe
+Fase 1 (robustez)     ████████░░  ← melhorias restantes: get_index, write_concept, timeout
 Fase 2 (semântica)    ██████████  ✅ COMPLETA
-Fase 4 (deploy + CI)  ██████░░░░  ← habilita fases 3 e 5
+Fase 4 (deploy + CI)  ████████░░  ← 80% feito — falta escolher plataforma + CD + auth + CORS
 Fase 3 (Google Drive) ████░░░░░░  ← depende de ação humana (credentials)
 Fase 5 (multi-AI)     ████░░░░░░  ← depende do deploy (fase 4)
 Fase 6 (qualidade)    ███░░░░░░░  ← contínua, em paralelo

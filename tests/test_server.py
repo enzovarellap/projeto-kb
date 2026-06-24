@@ -1,7 +1,8 @@
 """Testes para as tools do server.py (search, fetch, list_topics, get_log, get_stats)."""
+import sys
 import textwrap
 from pathlib import Path
-import sys
+
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))

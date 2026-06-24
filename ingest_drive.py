@@ -32,7 +32,7 @@ import io
 
 import frontmatter
 
-from ingest import ingest, _slug, _update_log
+from ingest import _slug, _update_log, ingest
 
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 

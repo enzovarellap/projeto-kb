@@ -14,7 +14,6 @@ from pathlib import Path
 
 try:
     import frontmatter
-    from frontmatter.default_handlers import YAMLHandler
 except ImportError:
     print("ERRO: instale python-frontmatter  →  pip install python-frontmatter")
     sys.exit(2)
