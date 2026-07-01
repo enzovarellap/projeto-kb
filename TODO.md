@@ -96,7 +96,7 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 
 ### 4.3 Segurança
 
-- [ ] **Autenticação do MCP server**: adicionar API key ou token Bearer para proteger o acesso `[🔍 pesquisar como FastMCP lida com autenticação — middleware? decorator?]`
+- [x] **Autenticação do MCP server**: implementado via middleware ASGI (`ApiKeyMiddleware` em `server.py`, `starlette.middleware.base.BaseHTTPMiddleware`), passado a `mcp.run(transport="streamable-http", middleware=[...])`. Aceita chave estática por `X-API-Key` ou `Authorization: Bearer <chave>`, validada contra a lista em `MCP_API_KEYS` (env var, separada por vírgula). `/health` sempre público. Auth fica **desligada por padrão** — só ativa se `MCP_API_KEYS` estiver definida e não-vazia, preservando testes e dev local sem config extra. Decisão: API key estática resolve o caso de uso atual (poucos clientes fixos: Claude Desktop, ChatGPT, Gemini); OAuth nativo do FastMCP fica para depois, se surgir necessidade de login por usuário/multi-tenant.
 - [ ] **Rate limiting**: limitar chamadas por minuto para evitar abuso
 - [ ] **HTTPS**: garantir que o deploy use TLS (geralmente resolvido pela plataforma)
 - [ ] **Secrets management**: credenciais do Drive e API keys em variáveis de ambiente, não no código
@@ -167,7 +167,7 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 | 5 | Google Drive MCP | Existe MCP server de Google Drive pronto para reusar? |
 | 6 | Plataforma de deploy | Render vs Railway vs Fly.io — qual tem melhor free tier para MCP? |
 | 7 | CORS no FastMCP | FastMCP já configura CORS automaticamente? |
-| 8 | Auth no FastMCP | Como implementar autenticação no FastMCP? Middleware? |
+| ~~8~~ | ~~Auth no FastMCP~~ | ~~Resolvido: middleware ASGI via `mcp.run(..., middleware=[Middleware(ApiKeyMiddleware)])` — API key estática, `MCP_API_KEYS`~~ |
 | 9 | ChatGPT Actions | Qual o formato atual da spec OpenAPI para Custom GPT Actions? |
 | 10 | Gemini + MCP | O Gemini já suporta MCP nativamente em 2026? |
 | 11 | Observabilidade | O que a plataforma de deploy escolhida oferece de monitoring grátis? |

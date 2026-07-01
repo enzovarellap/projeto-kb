@@ -211,8 +211,58 @@ make pre-commit-install
 | `KB_PATH` | `./kb` | Caminho para o bundle OKF |
 | `RATE_LIMIT_MAX` | `60` | Máximo de requests por janela |
 | `RATE_LIMIT_WINDOW` | `60` | Janela de rate limiting (segundos) |
+| `MCP_API_KEYS` | *(vazio)* | Lista de API keys válidas, separadas por vírgula. Vazio/ausente = autenticação desligada |
 
 Copie `.env.example` para `.env` e ajuste os valores.
+
+## Autenticação
+
+O server suporta autenticação por API key estática via header, implementada como
+middleware ASGI (`ApiKeyMiddleware` em `server.py`). **Fica desligada por padrão** —
+só é ativada quando a variável `MCP_API_KEYS` está definida e não-vazia, o que mantém
+dev local e os testes funcionando sem nenhuma configuração extra.
+
+### Ativando
+
+```bash
+# .env ou variável de ambiente do serviço de deploy
+MCP_API_KEYS=chave-secreta-um,chave-secreta-dois
+```
+
+Com isso, toda rota (exceto `/health`, sempre público para healthcheck da plataforma
+de deploy) passa a exigir uma das chaves acima, enviada em um dos dois formatos:
+
+- Header `X-API-Key: <chave>`
+- Header `Authorization: Bearer <chave>`
+
+Requisições sem chave válida recebem `401 {"error": "unauthorized"}`. O handshake MCP
+(`initialize`, `tools/list`, `tools/call`, etc.) funciona normalmente para requisições
+autenticadas — a autenticação não interfere no protocolo, só barra quem não tem chave.
+
+**Não faça:** não hardcode a key no repositório, não passe a key por query param, e não
+confie apenas em rate limiting como proteção de acesso.
+
+### Configuração por cliente
+
+**Claude Desktop** (`claude_desktop_config.json`, servers tipo `http` suportam `headers`):
+
+```json
+{
+  "mcpServers": {
+    "projeto-kb": {
+      "type": "http",
+      "url": "https://projeto-kb.onrender.com/mcp/",
+      "headers": { "x-api-key": "SUA_CHAVE" }
+    }
+  }
+}
+```
+
+**ChatGPT:** ao adicionar o connector/app, informe a chave no campo de autenticação
+(token). Via API (Responses), passe o header no tool `mcp`.
+
+**Gemini:** informe `headers: {"x-api-key": "..."}` diretamente na definição do tool
+`mcp_server`.
 
 ## Estrutura
 

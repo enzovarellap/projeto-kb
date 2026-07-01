@@ -9,6 +9,9 @@ from pathlib import Path
 import frontmatter
 from fastmcp import FastMCP
 from rapidfuzz import fuzz
+from starlette.middleware import Middleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 logging.basicConfig(
     level=logging.INFO,
@@ -536,10 +539,58 @@ def get_index(id: str = "index") -> dict:
 
 @mcp.custom_route("/health", ["GET"])
 async def health_check(request):
-    from starlette.responses import JSONResponse
     doc_count = len(_all())
     return JSONResponse({"status": "ok", "documents": doc_count})
 
 
+# ---------------------------------------------------------------------------
+# Autenticação — API key estática via header (opcional, ver Fase 4.3 TODO.md)
+# ---------------------------------------------------------------------------
+
+
+def _load_valid_api_keys() -> set[str]:
+    """Lê MCP_API_KEYS (lista separada por virgula). Vazio/ausente = auth desligada."""
+    raw = os.environ.get("MCP_API_KEYS", "")
+    return {key.strip() for key in raw.split(",") if key.strip()}
+
+
+class ApiKeyMiddleware(BaseHTTPMiddleware):
+    """Exige X-API-Key ou Authorization: Bearer <key> em todas as rotas, exceto /health."""
+
+    def __init__(self, app, valid_keys: set[str]):
+        super().__init__(app)
+        self.valid_keys = valid_keys
+
+    async def dispatch(self, request, call_next):
+        if request.url.path == "/health":
+            return await call_next(request)
+
+        api_key = request.headers.get("x-api-key")
+        if not api_key:
+            auth_header = request.headers.get("authorization", "")
+            if auth_header.lower().startswith("bearer "):
+                api_key = auth_header[len("bearer "):].strip()
+
+        if api_key not in self.valid_keys:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+        return await call_next(request)
+
+
+def _build_middleware() -> list[Middleware]:
+    """Monta a lista de middleware ASGI. Auth só entra se MCP_API_KEYS estiver definida."""
+    valid_keys = _load_valid_api_keys()
+    if not valid_keys:
+        log.info("MCP_API_KEYS não definida — autenticação desligada")
+        return []
+    log.info("Autenticação por API key ativada (%d chave(s))", len(valid_keys))
+    return [Middleware(ApiKeyMiddleware, valid_keys=valid_keys)]
+
+
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http", host=HOST, port=PORT)
+    mcp.run(
+        transport="streamable-http",
+        host=HOST,
+        port=PORT,
+        middleware=_build_middleware(),
+    )
