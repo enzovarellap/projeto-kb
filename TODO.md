@@ -32,7 +32,15 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 - [x] **`get_index`**: retorna o conteúdo de um `index.md` específico com seus links — atalho para navegação sem precisar fetch genérico
 - [x] **`get_log`**: retorna as últimas N entradas do `log.md`
 - [x] **`get_stats`**: retorna estatísticas do bundle — total, por tipo, pastas, último timestamp
-- [🔍] **`write_concept` / `update_concept`**: permitir que o assistente crie ou edite conceitos diretamente via MCP? (avaliar se faz sentido no fluxo do projeto — risco de corromper o bundle)
+- [ ] **`write_concept` / `update_concept`**: pesquisa concluída, decisão registrada — **adiar, não implementar agora**.
+  Não permitir escrita direta no bundle por assistentes (risco de corromper o KB sem revisão humana).
+  Caminho do meio, se algum dia fizer sentido: tool `propose_concept` que **não** toca no KB — abre PR via
+  GitHub API (ou grava em `/proposals/`) para aprovação humana. Salvaguardas obrigatórias nesse desenho
+  futuro: validação de schema OKF antes de propor, `dry_run=True` por padrão, backup/versionamento (nunca
+  sobrescrever), rate limit dedicado nas write tools, e anotar as tools de leitura existentes com
+  `readOnlyHint=True`. O que não fazer: `update_concept` que sobrescreve sem versionamento; confiar no LLM
+  para validar o próprio output; expor write tools sem auth forte; escrita direta em main/produção.
+  Nada disso foi implementado — item permanece como trabalho futuro, não como pendente de pesquisa.
 
 ### 1.3 Resiliência e performance
 
@@ -83,7 +91,13 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 - [x] **Dockerfile**: imagem Docker baseada em `python:3.12-slim` com healthcheck integrado
 - [x] **Variáveis de ambiente**: `HOST`, `PORT`, `KB_PATH`, `MAX_RESULTS`, `MAX_QUERY_LENGTH` via env vars (+ `.env.example`)
 - [x] **Health check**: endpoint `/health` via `@mcp.custom_route` retorna `{"status":"ok","documents":N}`
-- [ ] **CORS**: configurar CORS se necessário para acesso de clientes web `[🔍 verificar se fastmcp já lida com isso]`
+- [x] **CORS**: pesquisado e decidido — **não implementar agora**. Clientes reais deste projeto
+  (Claude Desktop, ChatGPT, Gemini) conectam server-side, não a partir de um browser — CORS é regra
+  de navegador (preflight/`Origin`), e requisições de data center da Anthropic/OpenAI/Google não
+  disparam isso. FastMCP só configura CORS automaticamente para rotas OAuth/`.well-known`; CORS
+  geral ficaria por nossa conta, mas não há necessidade real hoje. Se um cliente browser aparecer no
+  futuro (ex: MCP Inspector web, um front próprio), o snippet pronto para colar está documentado no
+  README (seção "CORS (se necessário)").
 
 ### 4.2 CI/CD
 
@@ -92,7 +106,9 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
   - [x] `make test` (rodar pytest com coverage)
   - [x] Lint com `ruff`
 - [ ] **GitHub Actions — CD**: deploy automático ao fazer push na branch principal
-- [ ] **Pre-commit hooks**: `ruff check`, `validate_okf.py` antes de cada commit `[🔍 avaliar usar pre-commit framework]`
+- [x] **Pre-commit hooks**: resolvido — usa o framework `pre-commit` de fato (`.pre-commit-config.yaml`
+  na raiz): `ruff` (`--fix` + `ruff-format`) e um hook local que roda `validate_okf.py` em qualquer
+  mudança sob `kb/**/*.md`. Instalar com `make pre-commit-install`.
 
 ### 4.3 Segurança
 
@@ -137,9 +153,16 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 
 ### 5.3 Gemini
 
-- [🔍] **Pesquisar integração Gemini + MCP**: verificar se o Gemini já suporta MCP nativo ou se precisa de adaptador/proxy `[🔍 pesquisar status do suporte MCP no Gemini — mudou em 2026?]`
-- [ ] **Implementar adaptador se necessário**: bridge REST/gRPC → MCP ou vice-versa
-- [ ] **Testar end-to-end**: validar que o Gemini consegue consumir o knowledge base
+- [x] **Pesquisar integração Gemini + MCP**: resolvido — sim, suporte nativo confirmado. Interactions
+  API do Gemini aceita tool `type: "mcp_server"` apontando direto para o endpoint `streamable-http`
+  (este projeto já usa `streamable-http`, compatível — SSE puro não funciona, mas não é o nosso caso).
+  Alternativa equivalente: SDK `google-genai` passando um client FastMCP. Caveats: ainda não funciona
+  com Gemini 3 — usar `gemini-2.5-flash`; e no caminho SDK o Gemini só acessa tools (não
+  resources/prompts). Ver seção "Gemini" no README para o snippet completo.
+- ~~[ ] **Implementar adaptador se necessário**~~ — decidido: não necessário. O server já fala
+  `streamable-http` nativamente; o Gemini consome direto via `mcp_server`, sem bridge/proxy.
+- [ ] **Testar end-to-end**: falta só rodar — depende do server estar deployado (Fase 4.1) e de uma
+  conta/API key do Gemini (ação manual do Enzo); o snippet no README já está pronto para colar.
 
 ---
 
@@ -183,7 +206,16 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 - [ ] **Playbooks adicionais**: guias para manutenção do server, troubleshooting, onboarding de novo membro
 - [ ] **Versionamento do bundle**: tags git para marcar versões estáveis do knowledge base (ex: `kb-v1.0`)
 - [ ] **Backup**: estratégia de backup do bundle (git já versiona, mas considerar export periódico)
-- [🔍] **Multi-idioma**: avaliar se faz sentido ter versões em inglês dos conceitos para assistentes que performam melhor em EN `[🔍 pesquisar se modelos como Claude/GPT lidam bem com KB inteiramente em PT-BR]`
+- [x] **Multi-idioma**: pesquisado e decidido — manter o KB só em PT-BR, não criar versões em inglês.
+  Claude/GPT respondem bem em português sobre um KB em português, e embeddings modernos são
+  multilíngues — traduzir "por garantia" não agrega. O risco real é outro: o embedding default do
+  ChromaDB (`all-MiniLM-L6-v2`) é English-centric e fraco em PT-BR. O lever que realmente importa é
+  trocar o *modelo de embedding*, não o idioma do conteúdo — recomendação atualizada de
+  `paraphrase-multilingual-MiniLM-L12-v2` para `intfloat/multilingual-e5-large` (ou `BGE-M3`), mais
+  fortes em PT-BR (ver README, seção "Indexar para busca semântica"). `embeddings.py` ganhou suporte
+  a prefixos `"query: "`/`"passage: "` (convenção do e5) quando esse modelo é usado. Reindexar com o
+  novo modelo é ação manual do Enzo (`make index` — não `index-update`, vetores de modelos diferentes
+  não são comparáveis; requer download do HuggingFace Hub e compute local).
 
 ---
 
@@ -192,29 +224,35 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 | # | Tema | Pergunta-chave |
 |---|------|----------------|
 | ~~1~~ | ~~Busca fuzzy~~ | ~~Resolvido: rapidfuzz>=3.0.0~~ |
-| 2 | Write via MCP | Faz sentido permitir que assistentes escrevam no bundle? Quais riscos? |
+| ~~2~~ | ~~Write via MCP~~ | ~~Resolvido: adiar — não implementar `write_concept`/`update_concept` agora; se revisitado, caminho seguro é `propose_concept` (PR/`/proposals/`, dry_run, validação OKF, backup/versionamento, rate limit, `readOnlyHint=True` nas tools de leitura). Nada implementado ainda~~ |
 | ~~3~~ | ~~Vector DB~~ | ~~Resolvido: ChromaDB — zero-infra, persistente, API simples~~ |
 | ~~4~~ | ~~Embeddings PT-BR~~ | ~~Resolvido: default ONNX (all-MiniLM-L6-v2); multilingual via --model~~ |
 | 5 | Google Drive MCP | Existe MCP server de Google Drive pronto para reusar? |
 | ~~6~~ | ~~Plataforma de deploy~~ | ~~Resolvido: Render free tier (→ Starter $7/mês se o cold start incomodar); config em `render.yaml`~~ |
-| 7 | CORS no FastMCP | FastMCP já configura CORS automaticamente? |
+| ~~7~~ | ~~CORS no FastMCP~~ | ~~Resolvido: não configurar agora — clientes reais (Claude Desktop/ChatGPT/Gemini) conectam server-side, CORS é regra de browser; snippet pronto documentado no README para se um cliente browser aparecer~~ |
 | ~~8~~ | ~~Auth no FastMCP~~ | ~~Resolvido: middleware ASGI via `mcp.run(..., middleware=[Middleware(ApiKeyMiddleware)])` — API key estática, `MCP_API_KEYS`~~ |
 | ~~9~~ | ~~ChatGPT Actions~~ | ~~Resolvido: não usa Action/OpenAPI — ChatGPT fala MCP nativo; conecta via Apps/Developer Mode direto no server, com `search`/`fetch` ajustados ao contrato do Deep Research~~ |
-| 10 | Gemini + MCP | O Gemini já suporta MCP nativamente em 2026? |
+| ~~10~~ | ~~Gemini + MCP~~ | ~~Resolvido: sim, suporte nativo confirmado — Interactions API com tool `type: "mcp_server"` sobre streamable-http (ou SDK `google-genai`); usar `gemini-2.5-flash`, nome do tool em snake_case~~ |
 | ~~11~~ | ~~Observabilidade~~ | ~~Resolvido: logs JSON estruturados (dashboard do Render) + tracing OTEL opt-in via Logfire; Prometheus+Grafana descartado como overkill nesta escala~~ |
-| 12 | Multi-idioma | Modelos atuais lidam bem com KB inteiramente em PT-BR? |
-| 13 | Pre-commit | Vale usar o framework `pre-commit` para hooks? |
+| ~~12~~ | ~~Multi-idioma~~ | ~~Resolvido: manter KB só em PT-BR; o lever real é o modelo de embedding (recomendado: intfloat/multilingual-e5-large ou BGE-M3), não tradução~~ |
+| ~~13~~ | ~~Pre-commit~~ | ~~Resolvido: sim, já em uso — `.pre-commit-config.yaml` (ruff + validate_okf.py), `make pre-commit-install`~~ |
 
 ---
 
 ## Ordem sugerida de execução
 
 ```
-Fase 1 (robustez)     ████████░░  ← próxima — melhora o que já existe
+Fase 1 (robustez)     █████████░  ← só falta decidir/testar concorrência; write_concept
+                                    adiado por decisão (não é lacuna, é escopo fechado)
 Fase 2 (semântica)    ██████████  ✅ COMPLETA
-Fase 4 (deploy + CI)  ███████░░░  ← plataforma decidida (Render); falta criar conta/conectar repo
-Fase 3 (Google Drive) ████░░░░░░  ← depende de ação humana (credentials)
-Fase 5 (multi-AI)     ████░░░░░░  ← depende do deploy (fase 4)
-Fase 6 (qualidade)    ███░░░░░░░  ← contínua, em paralelo
-Fase 7 (conteúdo)     ███░░░░░░░  ← contínua, em paralelo
+Fase 4 (deploy + CI)  ████████░░  ← código/config/decisões todas prontas (Render, CORS,
+                                    auth, pre-commit); falta CD automático + conta Render
+Fase 3 (Google Drive) ████░░░░░░  ← código pronto; depende de ação humana (credentials)
+Fase 5 (multi-AI)     ██████░░░░  ← ChatGPT e Gemini com decisão + docs completos; falta
+                                    testar de verdade (contas/deploy — ação humana) e
+                                    documentar config do Claude Desktop remoto
+Fase 6 (qualidade)    ██████░░░░  ← observabilidade completa; testes de concorrência e
+                                    integração real ainda faltam; alertas dependem de conta
+Fase 7 (conteúdo)     ████░░░░░░  ← multi-idioma decidido (KB fica PT-BR); resto é
+                                    trabalho contínuo de conteúdo, sem bloqueio técnico
 ```
