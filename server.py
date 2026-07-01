@@ -1,3 +1,5 @@
+import functools
+import json
 import logging
 import os
 import re
@@ -8,7 +10,11 @@ from pathlib import Path
 
 import frontmatter
 from fastmcp import FastMCP
+from pydantic import BaseModel
 from rapidfuzz import fuzz
+from starlette.middleware import Middleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 logging.basicConfig(
     level=logging.INFO,
@@ -16,6 +22,83 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("projeto-kb")
+
+# ---------------------------------------------------------------------------
+# Observabilidade (Fase 6.2) — logs JSON estruturados + tracing opcional
+# ---------------------------------------------------------------------------
+#
+# Decisão registrada no TODO.md: logs JSON estruturados (sempre ligados,
+# pesquisáveis no dashboard do Render) + OpenTelemetry via Logfire (free tier,
+# opt-in via LOGFIRE_TOKEN) para tracing de verdade. Prometheus+Grafana foi
+# descartado por ser trabalho de infra que não se paga no volume deste
+# projeto (~100 req/dia). Ver justificativa completa no TODO.md.
+#
+# Logfire é opcional: só é usado se (a) o pacote estiver instalado e (b)
+# LOGFIRE_TOKEN estiver definida. Sem isso, o código abaixo é um no-op — o
+# FastMCP já emite spans OTEL nativamente (tool/resource/prompt), então
+# ligar o Logfire é só uma questão de chamar `logfire.configure(...)`.
+try:
+    import logfire
+except ImportError:
+    logfire = None
+
+_LOGFIRE_TOKEN = os.environ.get("LOGFIRE_TOKEN", "")
+if logfire is not None and _LOGFIRE_TOKEN:
+    logfire.configure(service_name="projeto-kb")
+    log.info("Logfire configurado — tracing OTEL ativo")
+else:
+    log.info("Logfire desligado (defina LOGFIRE_TOKEN e instale `logfire` para ativar tracing)")
+
+
+def log_event(**kw) -> None:
+    """Emite um evento estruturado em JSON (uma linha) via o logger padrão.
+
+    Nunca deve derrubar a chamada que o originou: qualquer falha ao
+    serializar/logar é engolida silenciosamente (best-effort). Não logue
+    payloads sensíveis (API keys, conteúdo bruto de queries/documentos) —
+    prefira tamanhos/contagens/ids.
+    """
+    try:
+        log.info(json.dumps({"ts": time.time(), **kw}, default=str))
+    except Exception:
+        pass
+
+
+def _log_tool_call(tool_name: str, metrics=None):
+    """Decorator para wrappers `@mcp.tool`: mede latência e loga um evento
+    estruturado por chamada (status ok/error). Não deve ser aplicado às
+    funções `_*_impl`, que também são chamadas internamente por outras tools
+    (ex: fallback de `semantic_search` para `_search_impl`) — logar ali
+    duplicaria eventos.
+
+    `metrics`, se fornecido, é `f(*args, **kwargs) -> dict` chamado com os
+    mesmos argumentos da tool para extrair metadados baratos e não-sensiveis
+    (tamanhos, ids, contagens — nunca query/conteúdo bruto) a incluir no
+    evento. Falhas ao extrair métricas nunca devem quebrar a chamada."""
+
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            extra = {}
+            if metrics is not None:
+                try:
+                    extra = metrics(*args, **kwargs) or {}
+                except Exception:
+                    extra = {}
+            start = time.perf_counter()
+            try:
+                result = fn(*args, **kwargs)
+            except Exception:
+                latency_ms = (time.perf_counter() - start) * 1000
+                log_event(tool=tool_name, status="error", latency_ms=round(latency_ms, 2), **extra)
+                raise
+            latency_ms = (time.perf_counter() - start) * 1000
+            log_event(tool=tool_name, status="ok", latency_ms=round(latency_ms, 2), **extra)
+            return result
+
+        return wrapper
+
+    return decorator
 
 KB = Path(os.environ.get("KB_PATH", Path(__file__).parent / "kb"))
 HOST = os.environ.get("HOST", "127.0.0.1")
@@ -73,6 +156,41 @@ def _normalize(text: str) -> str:
 
 def _id(path: Path) -> str:
     return str(path.relative_to(KB)).replace("\\", "/").replace(".md", "")
+
+
+# ---------------------------------------------------------------------------
+# Compatibilidade com o contrato search/fetch do ChatGPT Deep Research (Fase 5.2)
+# ---------------------------------------------------------------------------
+#
+# Não existe URL HTTP publica para os documentos do bundle (sao apenas arquivos
+# markdown identificados por `id`). Para preencher o campo `url` exigido pelo
+# contrato de Deep Research, usamos um esquema de URI interno "kb://<id>",
+# seguindo o mesmo padrao ja usado pelo campo `resource` deste bundle para
+# referenciar arquivos de origem (ex: "drive://<id>", ver ingest_drive.py).
+# Este NAO e um link clicavel/HTTP — e apenas um identificador opaco que,
+# resolvido via `fetch(id)`, retorna o documento completo.
+_KB_URI_SCHEME = "kb://"
+
+
+def _kb_url(doc_id: str) -> str:
+    """Monta a pseudo-URL kb://<id> usada nos campos `url` de search/fetch."""
+    return f"{_KB_URI_SCHEME}{doc_id}" if doc_id else ""
+
+
+_SNIPPET_LENGTH = 300
+
+
+def _snippet(doc: dict) -> str:
+    """Texto curto para o campo `text` de search: description, ou um trecho do
+    corpo se a description estiver vazia (fallback para compatibilidade com
+    ChatGPT Deep Research, que exige um snippet por resultado)."""
+    if doc.get("description"):
+        return doc["description"]
+    body = (doc.get("body") or "").strip()
+    if not body:
+        return ""
+    excerpt = " ".join(body.split())[:_SNIPPET_LENGTH]
+    return excerpt
 
 
 def _load(path: Path) -> dict:
@@ -276,6 +394,10 @@ def _search_impl(query: str, limit: int = 8, offset: int = 0) -> list[dict]:
                         "type": d["type"],
                         "title": d["title"],
                         "description": d["description"],
+                        # Campos adicionais para compatibilidade com o contrato
+                        # search/fetch do ChatGPT Deep Research (Fase 5.2).
+                        "text": _snippet(d),
+                        "url": _kb_url(d["id"]),
                     },
                 )
             )
@@ -304,6 +426,20 @@ def _fetch_impl(id: str) -> dict:
             links = re.findall(r"\]\(([^)]+\.md)\)", d["body"])
             result = dict(d)
             result["outgoing_links"] = [lnk.replace(".md", "").lstrip("/") for lnk in links]
+            # Campos adicionais para compatibilidade com o contrato search/fetch
+            # do ChatGPT Deep Research (Fase 5.2): `text` reaproveita o corpo
+            # completo (mesmo conteudo de `body`, que permanece por compat com
+            # consumidores existentes) e `url` usa o esquema kb://<id> (ver
+            # _kb_url acima). `metadata` agrupa os campos "extras" do frontmatter
+            # no formato que o Document.metadata de Deep Research espera.
+            result["text"] = result["body"]
+            result["url"] = _kb_url(result["id"])
+            result["metadata"] = {
+                "type": result["type"],
+                "tags": result["tags"],
+                "timestamp": result["timestamp"],
+                "resource": result["resource"],
+            }
             log.info("fetch(%r) → %s", id, result["title"])
             return result
     log.warning("fetch(%r) → não encontrado", id)
@@ -311,6 +447,9 @@ def _fetch_impl(id: str) -> dict:
         "id": id,
         "title": "Nao encontrado",
         "body": f"Sem conceito '{id}'.",
+        "text": f"Sem conceito '{id}'.",
+        "url": _kb_url(id),
+        "metadata": None,
         "outgoing_links": [],
     }
 
@@ -472,20 +611,78 @@ def _semantic_search_impl(query: str, limit: int = 5) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Modelos Pydantic — contrato search/fetch exigido pelo ChatGPT Deep Research
+# ---------------------------------------------------------------------------
+#
+# Deep Research valida o "shape" da resposta de `search`/`fetch` e espera
+# especificamente `{"results": [...]}` para search (chave no PLURAL) e um
+# objeto Document "achatado" para fetch. FastMCP so gera esse envelope exato
+# quando a tool retorna um modelo Pydantic com um campo `results`: uma tool
+# anotada com `-> list[dict]` e automaticamente empacotada pelo FastMCP como
+# `{"result": [...]}` (singular, ver fastmcp.tools.function_parsing.
+# _WrappedResult) — confirmado empiricamente com fastmcp 3.4.2 — o que NAO
+# bate com o contrato do Deep Research. Por isso os wrappers `search`/`fetch`
+# abaixo retornam estes modelos tipados (que o FastMCP serializa via
+# `.model_dump()` tanto em `structuredContent` quanto em `content`), enquanto
+# `_search_impl`/`_fetch_impl` continuam retornando list[dict]/dict simples
+# para não quebrar os consumidores/testes existentes que chamam essas
+# funções puras diretamente.
+
+
+class SearchResult(BaseModel):
+    id: str
+    type: str | None = None
+    title: str
+    description: str | None = None
+    text: str | None = None
+    url: str | None = None
+
+
+class SearchResults(BaseModel):
+    results: list[SearchResult]
+
+
+class Document(BaseModel):
+    id: str
+    type: str | None = None
+    title: str
+    description: str | None = None
+    resource: str | None = None
+    tags: list | None = None
+    timestamp: str | None = None
+    body: str
+    text: str
+    url: str | None = None
+    metadata: dict | None = None
+    outgoing_links: list[str] = []
+
+
+# ---------------------------------------------------------------------------
 # Wrappers registrados como tools MCP
 # ---------------------------------------------------------------------------
 
 
 @mcp.tool
-def search(query: str, limit: int = 8, offset: int = 0) -> list[dict]:
+@_log_tool_call("search", metrics=lambda query, limit=8, offset=0: {
+    "query_len": len(query), "limit": limit, "offset": offset,
+})
+def search(query: str, limit: int = 8, offset: int = 0) -> SearchResults:
     """Procura conceitos por palavra-chave em title, description, tags e corpo.
     Suporta multiplos termos (AND): 'motor eletrico' exige ambas as palavras.
     Tolerante a acentos ('trituracao' → 'trituração') e typos ('triturdora' → 'trituradora').
-    Resultados ordenados por relevancia. Use offset para paginar."""
-    return _search_impl(query, limit, offset)
+    Resultados ordenados por relevancia. Use offset para paginar.
+
+    Compatível com o contrato search/fetch do ChatGPT Deep Research: cada
+    resultado inclui `text` (snippet) e `url` (kb://<id>), e a resposta vem
+    envelopada como {"results": [...]}."""
+    hits = _search_impl(query, limit, offset)
+    return SearchResults(results=[SearchResult(**h) for h in hits])
 
 
 @mcp.tool
+@_log_tool_call("semantic_search", metrics=lambda query, limit=5: {
+    "query_len": len(query), "limit": limit,
+})
 def semantic_search(query: str, limit: int = 5) -> list[dict]:
     """Busca semântica por similaridade vetorial. Encontra conceitos relevantes
     mesmo quando os termos exatos não aparecem no texto (ex: 'triturar plástico'
@@ -496,13 +693,19 @@ def semantic_search(query: str, limit: int = 5) -> list[dict]:
 
 
 @mcp.tool
-def fetch(id: str) -> dict:
+@_log_tool_call("fetch", metrics=lambda id: {"id_len": len(id)})
+def fetch(id: str) -> Document:
     """Retorna o conceito completo pelo id, com outgoing_links (ids dos conceitos
-    referenciados no corpo) para a IA continuar navegando o grafo."""
-    return _fetch_impl(id)
+    referenciados no corpo) para a IA continuar navegando o grafo.
+
+    Compatível com o contrato search/fetch do ChatGPT Deep Research: o campo
+    `text` traz o conteúdo completo (igual a `body`), `url` usa o esquema
+    kb://<id>, e `metadata` agrupa type/tags/timestamp/resource."""
+    return Document(**_fetch_impl(id))
 
 
 @mcp.tool
+@_log_tool_call("list_topics")
 def list_topics() -> list[dict]:
     """Retorna a arvore de navegacao do bundle: cada indice com seus filhos.
     Bom ponto de partida para explorar a base de conhecimento."""
@@ -510,12 +713,14 @@ def list_topics() -> list[dict]:
 
 
 @mcp.tool
+@_log_tool_call("get_log", metrics=lambda last_n=20: {"last_n": last_n})
 def get_log(last_n: int = 20) -> dict:
     """Retorna as ultimas N entradas do historico de mudancas do bundle."""
     return _get_log_impl(last_n)
 
 
 @mcp.tool
+@_log_tool_call("get_stats")
 def get_stats() -> dict:
     """Retorna estatisticas do bundle: total de conceitos, contagem por tipo,
     pastas existentes e timestamp da ultima atualizacao."""
@@ -523,6 +728,7 @@ def get_stats() -> dict:
 
 
 @mcp.tool
+@_log_tool_call("get_index", metrics=lambda id="index": {"id_len": len(id)})
 def get_index(id: str = "index") -> dict:
     """Retorna o conteudo de um indice (index.md) especifico com seus filhos resolvidos.
     Cada filho inclui id, title, type e description. Atalho para navegacao sem precisar
@@ -536,10 +742,58 @@ def get_index(id: str = "index") -> dict:
 
 @mcp.custom_route("/health", ["GET"])
 async def health_check(request):
-    from starlette.responses import JSONResponse
     doc_count = len(_all())
     return JSONResponse({"status": "ok", "documents": doc_count})
 
 
+# ---------------------------------------------------------------------------
+# Autenticação — API key estática via header (opcional, ver Fase 4.3 TODO.md)
+# ---------------------------------------------------------------------------
+
+
+def _load_valid_api_keys() -> set[str]:
+    """Lê MCP_API_KEYS (lista separada por virgula). Vazio/ausente = auth desligada."""
+    raw = os.environ.get("MCP_API_KEYS", "")
+    return {key.strip() for key in raw.split(",") if key.strip()}
+
+
+class ApiKeyMiddleware(BaseHTTPMiddleware):
+    """Exige X-API-Key ou Authorization: Bearer <key> em todas as rotas, exceto /health."""
+
+    def __init__(self, app, valid_keys: set[str]):
+        super().__init__(app)
+        self.valid_keys = valid_keys
+
+    async def dispatch(self, request, call_next):
+        if request.url.path == "/health":
+            return await call_next(request)
+
+        api_key = request.headers.get("x-api-key")
+        if not api_key:
+            auth_header = request.headers.get("authorization", "")
+            if auth_header.lower().startswith("bearer "):
+                api_key = auth_header[len("bearer "):].strip()
+
+        if api_key not in self.valid_keys:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+        return await call_next(request)
+
+
+def _build_middleware() -> list[Middleware]:
+    """Monta a lista de middleware ASGI. Auth só entra se MCP_API_KEYS estiver definida."""
+    valid_keys = _load_valid_api_keys()
+    if not valid_keys:
+        log.info("MCP_API_KEYS não definida — autenticação desligada")
+        return []
+    log.info("Autenticação por API key ativada (%d chave(s))", len(valid_keys))
+    return [Middleware(ApiKeyMiddleware, valid_keys=valid_keys)]
+
+
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http", host=HOST, port=PORT)
+    mcp.run(
+        transport="streamable-http",
+        host=HOST,
+        port=PORT,
+        middleware=_build_middleware(),
+    )

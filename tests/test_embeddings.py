@@ -229,3 +229,34 @@ class TestServerIntegration:
     def test_semantic_search_supplements_low_score(self):
         results = self.srv._semantic_search_impl("xyzzy gibberish nonsense")
         assert len(results) > 0
+
+
+class TestE5PrefixDetection:
+    """Testa a detecção de modelos e5 (prefixos 'query:'/'passage:') sem baixar nenhum
+    modelo — só exercita a função pura de detecção, não instancia SemanticIndex/ChromaDB
+    (que exigiriam rede, indisponível neste sandbox — ver TestBuild etc. acima)."""
+
+    def test_multilingual_e5_large_detected(self):
+        from embeddings import _is_e5_model
+
+        assert _is_e5_model("intfloat/multilingual-e5-large") is True
+
+    def test_multilingual_e5_base_detected(self):
+        from embeddings import _is_e5_model
+
+        assert _is_e5_model("intfloat/multilingual-e5-base") is True
+
+    def test_non_e5_model_not_detected(self):
+        from embeddings import _is_e5_model
+
+        assert _is_e5_model("paraphrase-multilingual-MiniLM-L12-v2") is False
+
+    def test_none_model_not_detected(self):
+        from embeddings import _is_e5_model
+
+        assert _is_e5_model(None) is False
+
+    def test_empty_string_not_detected(self):
+        from embeddings import _is_e5_model
+
+        assert _is_e5_model("") is False

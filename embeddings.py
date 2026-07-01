@@ -3,7 +3,10 @@
 Uso:
     python embeddings.py              # full reindex
     python embeddings.py --update     # incremental (apenas novos/modificados)
-    python embeddings.py --model paraphrase-multilingual-MiniLM-L12-v2  # modelo customizado
+    python embeddings.py --model intfloat/multilingual-e5-large  # modelo multilingual recomendado p/ PT-BR
+
+Nota: ao trocar de modelo, sempre rode full reindex (sem --update) — vetores de
+modelos diferentes não são comparáveis entre si.
 """
 
 import hashlib
@@ -29,6 +32,15 @@ CHROMA_DIR = Path(__file__).parent / ".chroma"
 COLLECTION = "projeto-kb"
 
 SCORE_THRESHOLD = 0.25
+
+# Modelos da família e5 (ex: intfloat/multilingual-e5-large) rendem mais com prefixos
+# explícitos: "query: " nas buscas e "passage: " nos documentos indexados. Ver README
+# ("Indexar para busca semântica") e TODO.md (Fase 7, "Multi-idioma") para a decisão.
+E5_MODEL_PREFIX = "intfloat/multilingual-e5"
+
+
+def _is_e5_model(model_name: str | None) -> bool:
+    return bool(model_name) and model_name.startswith(E5_MODEL_PREFIX)
 
 
 def _make_ef(model_name: str | None = None):
@@ -57,6 +69,8 @@ class SemanticIndex:
     ):
         self.kb_root = kb_root
         self.chroma_dir = chroma_dir
+        self.model_name = model_name
+        self._e5_prefixes = _is_e5_model(model_name)
         self.ef = _make_ef(model_name)
         self.client = chromadb.PersistentClient(path=str(chroma_dir))
         self.collection = self.client.get_or_create_collection(
@@ -72,6 +86,8 @@ class SemanticIndex:
         description = post.get("description", "")
         tags = post.get("tags", [])
         text = f"{title}\n{description}\n{' '.join(map(str, tags))}\n{post.content}"
+        if self._e5_prefixes:
+            text = f"passage: {text}"
         return {
             "id": doc_id,
             "text": text,
@@ -161,9 +177,10 @@ class SemanticIndex:
         if self.collection.count() == 0:
             return []
 
+        query_text = f"query: {text}" if self._e5_prefixes else text
         n = min(n_results, self.collection.count())
         results = self.collection.query(
-            query_texts=[text],
+            query_texts=[query_text],
             n_results=n,
             include=["metadatas", "distances"],
         )
