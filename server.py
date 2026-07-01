@@ -1,3 +1,5 @@
+import functools
+import json
 import logging
 import os
 import re
@@ -20,6 +22,83 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("projeto-kb")
+
+# ---------------------------------------------------------------------------
+# Observabilidade (Fase 6.2) — logs JSON estruturados + tracing opcional
+# ---------------------------------------------------------------------------
+#
+# Decisão registrada no TODO.md: logs JSON estruturados (sempre ligados,
+# pesquisáveis no dashboard do Render) + OpenTelemetry via Logfire (free tier,
+# opt-in via LOGFIRE_TOKEN) para tracing de verdade. Prometheus+Grafana foi
+# descartado por ser trabalho de infra que não se paga no volume deste
+# projeto (~100 req/dia). Ver justificativa completa no TODO.md.
+#
+# Logfire é opcional: só é usado se (a) o pacote estiver instalado e (b)
+# LOGFIRE_TOKEN estiver definida. Sem isso, o código abaixo é um no-op — o
+# FastMCP já emite spans OTEL nativamente (tool/resource/prompt), então
+# ligar o Logfire é só uma questão de chamar `logfire.configure(...)`.
+try:
+    import logfire
+except ImportError:
+    logfire = None
+
+_LOGFIRE_TOKEN = os.environ.get("LOGFIRE_TOKEN", "")
+if logfire is not None and _LOGFIRE_TOKEN:
+    logfire.configure(service_name="projeto-kb")
+    log.info("Logfire configurado — tracing OTEL ativo")
+else:
+    log.info("Logfire desligado (defina LOGFIRE_TOKEN e instale `logfire` para ativar tracing)")
+
+
+def log_event(**kw) -> None:
+    """Emite um evento estruturado em JSON (uma linha) via o logger padrão.
+
+    Nunca deve derrubar a chamada que o originou: qualquer falha ao
+    serializar/logar é engolida silenciosamente (best-effort). Não logue
+    payloads sensíveis (API keys, conteúdo bruto de queries/documentos) —
+    prefira tamanhos/contagens/ids.
+    """
+    try:
+        log.info(json.dumps({"ts": time.time(), **kw}, default=str))
+    except Exception:
+        pass
+
+
+def _log_tool_call(tool_name: str, metrics=None):
+    """Decorator para wrappers `@mcp.tool`: mede latência e loga um evento
+    estruturado por chamada (status ok/error). Não deve ser aplicado às
+    funções `_*_impl`, que também são chamadas internamente por outras tools
+    (ex: fallback de `semantic_search` para `_search_impl`) — logar ali
+    duplicaria eventos.
+
+    `metrics`, se fornecido, é `f(*args, **kwargs) -> dict` chamado com os
+    mesmos argumentos da tool para extrair metadados baratos e não-sensiveis
+    (tamanhos, ids, contagens — nunca query/conteúdo bruto) a incluir no
+    evento. Falhas ao extrair métricas nunca devem quebrar a chamada."""
+
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            extra = {}
+            if metrics is not None:
+                try:
+                    extra = metrics(*args, **kwargs) or {}
+                except Exception:
+                    extra = {}
+            start = time.perf_counter()
+            try:
+                result = fn(*args, **kwargs)
+            except Exception:
+                latency_ms = (time.perf_counter() - start) * 1000
+                log_event(tool=tool_name, status="error", latency_ms=round(latency_ms, 2), **extra)
+                raise
+            latency_ms = (time.perf_counter() - start) * 1000
+            log_event(tool=tool_name, status="ok", latency_ms=round(latency_ms, 2), **extra)
+            return result
+
+        return wrapper
+
+    return decorator
 
 KB = Path(os.environ.get("KB_PATH", Path(__file__).parent / "kb"))
 HOST = os.environ.get("HOST", "127.0.0.1")
@@ -584,6 +663,9 @@ class Document(BaseModel):
 
 
 @mcp.tool
+@_log_tool_call("search", metrics=lambda query, limit=8, offset=0: {
+    "query_len": len(query), "limit": limit, "offset": offset,
+})
 def search(query: str, limit: int = 8, offset: int = 0) -> SearchResults:
     """Procura conceitos por palavra-chave em title, description, tags e corpo.
     Suporta multiplos termos (AND): 'motor eletrico' exige ambas as palavras.
@@ -598,6 +680,9 @@ def search(query: str, limit: int = 8, offset: int = 0) -> SearchResults:
 
 
 @mcp.tool
+@_log_tool_call("semantic_search", metrics=lambda query, limit=5: {
+    "query_len": len(query), "limit": limit,
+})
 def semantic_search(query: str, limit: int = 5) -> list[dict]:
     """Busca semântica por similaridade vetorial. Encontra conceitos relevantes
     mesmo quando os termos exatos não aparecem no texto (ex: 'triturar plástico'
@@ -608,6 +693,7 @@ def semantic_search(query: str, limit: int = 5) -> list[dict]:
 
 
 @mcp.tool
+@_log_tool_call("fetch", metrics=lambda id: {"id_len": len(id)})
 def fetch(id: str) -> Document:
     """Retorna o conceito completo pelo id, com outgoing_links (ids dos conceitos
     referenciados no corpo) para a IA continuar navegando o grafo.
@@ -619,6 +705,7 @@ def fetch(id: str) -> Document:
 
 
 @mcp.tool
+@_log_tool_call("list_topics")
 def list_topics() -> list[dict]:
     """Retorna a arvore de navegacao do bundle: cada indice com seus filhos.
     Bom ponto de partida para explorar a base de conhecimento."""
@@ -626,12 +713,14 @@ def list_topics() -> list[dict]:
 
 
 @mcp.tool
+@_log_tool_call("get_log", metrics=lambda last_n=20: {"last_n": last_n})
 def get_log(last_n: int = 20) -> dict:
     """Retorna as ultimas N entradas do historico de mudancas do bundle."""
     return _get_log_impl(last_n)
 
 
 @mcp.tool
+@_log_tool_call("get_stats")
 def get_stats() -> dict:
     """Retorna estatisticas do bundle: total de conceitos, contagem por tipo,
     pastas existentes e timestamp da ultima atualizacao."""
@@ -639,6 +728,7 @@ def get_stats() -> dict:
 
 
 @mcp.tool
+@_log_tool_call("get_index", metrics=lambda id="index": {"id_len": len(id)})
 def get_index(id: str = "index") -> dict:
     """Retorna o conteudo de um indice (index.md) especifico com seus filhos resolvidos.
     Cada filho inclui id, title, type e description. Atalho para navegacao sem precisar

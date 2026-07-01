@@ -298,6 +298,58 @@ confie apenas em rate limiting como proteção de acesso.
 **Gemini:** informe `headers: {"x-api-key": "..."}` diretamente na definição do tool
 `mcp_server`.
 
+## Observabilidade
+
+Decisão registrada no TODO.md (Fase 6.2): **logs JSON estruturados sempre ligados** +
+**tracing OpenTelemetry opt-in via Logfire**. Prometheus + Grafana foi avaliado e
+descartado — é trabalho de infra que não se paga no volume deste projeto (~100 req/dia).
+
+### Logs estruturados (sempre ativos)
+
+Cada chamada a uma tool MCP (`search`, `semantic_search`, `fetch`, `list_topics`,
+`get_log`, `get_stats`, `get_index`) emite uma linha JSON via o `log_event()`/
+`_log_tool_call` de `server.py`, com `tool`, `status` (`ok`/`error`), `latency_ms` e
+metadados baratos e não-sensíveis (ex: `query_len`, `limit`, `id_len` — nunca a query
+ou o conteúdo bruto de um documento, e nunca a API key). Uma falha ao logar nunca
+derruba a chamada da tool (best-effort, `try/except` silencioso).
+
+Como o server já usa `logging.basicConfig` para stdout, esses logs aparecem e ficam
+pesquisáveis diretamente no dashboard de logs do Render — suficiente para começar,
+sem infra adicional.
+
+### Tracing com Logfire (opcional)
+
+O FastMCP já emite spans OpenTelemetry automaticamente para tool/resource/prompt
+(no-op sem um SDK configurado). Para tracing de verdade com ~zero esforço, ligue o
+[Logfire](https://logfire.pydantic.dev/) (Pydantic, free tier generoso, mesmo
+ecossistema que sustenta o FastMCP):
+
+```bash
+pip install logfire   # não é dependência obrigatória — ver nota abaixo
+export LOGFIRE_TOKEN=seu-token-aqui
+```
+
+Com `LOGFIRE_TOKEN` definida e o pacote instalado, `server.py` chama
+`logfire.configure(service_name="projeto-kb")` na inicialização e os spans nativos do
+FastMCP passam a fluir para o Logfire automaticamente — nenhuma instrumentação manual
+adicional é necessária. Sem o pacote instalado ou sem a variável definida, o import é
+best-effort (`try/except ImportError`) e o server roda normalmente, só com os logs
+JSON.
+
+**Nota sobre a dependência:** `logfire` não está em `requirements.txt` porque seus
+requisitos transitivos de OpenTelemetry conflitam de versão com os que o `chromadb`
+já fixa neste projeto (`opentelemetry-sdk`/`opentelemetry-proto`/
+`opentelemetry-exporter-otlp-proto-*`). Instalar `logfire` à parte funciona (o
+conflito é só um aviso do `pip check`, não quebra nada em teste), mas para não
+arriscar esse atrito em toda instalação padrão, ele fica como instalação manual
+opcional, guardada por `try/except` no código.
+
+### Alertas
+
+Ainda não configurados neste repositório — mas com logs estruturados e tracing no ar,
+já é possível ligar alerting nativo do Render (nível de serviço/uptime) ou do Logfire
+(taxa de erro, latência) assim que houver uma conta configurada em produção.
+
 ## Estrutura
 
 ```

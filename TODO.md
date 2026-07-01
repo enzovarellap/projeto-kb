@@ -156,9 +156,24 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 
 ### 6.2 Observabilidade
 
-- [ ] **Métricas**: instrumentar o server com contadores de chamadas, latência por tool, erros
-- [🔍] **Escolher stack de observabilidade**: Prometheus + Grafana? Simples JSON log + Datadog? `[🔍 avaliar o que a plataforma de deploy oferece gratuitamente]`
-- [ ] **Alertas**: notificar se o server cair ou se a taxa de erro subir
+- [x] **Métricas**: instrumentado via `log_event()` + decorator `_log_tool_call` em
+  `server.py`, aplicado nos 6 wrappers `@mcp.tool` (não nas funções `_*_impl`, para
+  não duplicar eventos quando uma tool chama outra internamente, ex: fallback de
+  `semantic_search`). Cada chamada emite uma linha JSON com `tool`, `status`
+  (`ok`/`error`), `latency_ms` (via `time.perf_counter()`) e metadados baratos
+  (`query_len`, `limit`, `id_len` etc. — nunca query/conteúdo bruto ou API keys).
+  Tracing OTEL opcional via Logfire (ver abaixo). Testado em `tests/test_observability.py`.
+- [x] **Escolher stack de observabilidade**: Resolvido — logs JSON estruturados
+  (sempre ligados, pesquisáveis no dashboard do Render) para começar; Logfire
+  (Pydantic, OTEL-based, free tier generoso, mesmo ecossistema do FastMCP) opt-in via
+  `LOGFIRE_TOKEN` para tracing de verdade com ~zero esforço, já que o FastMCP emite
+  spans OTEL nativamente. Prometheus + Grafana descartado por ser trabalho de infra
+  que não se paga no volume deste projeto (~100 req/dia). Ver seção "Observabilidade"
+  no README.
+- [ ] **Alertas**: notificar se o server cair ou se a taxa de erro subir — ainda requer
+  configuração manual (fora do código), mas agora viável usando alerting nativo do
+  Render (uptime/health) ou do Logfire (taxa de erro/latência) uma vez que a conta
+  exista em produção.
 
 ---
 
@@ -186,7 +201,7 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 | ~~8~~ | ~~Auth no FastMCP~~ | ~~Resolvido: middleware ASGI via `mcp.run(..., middleware=[Middleware(ApiKeyMiddleware)])` — API key estática, `MCP_API_KEYS`~~ |
 | ~~9~~ | ~~ChatGPT Actions~~ | ~~Resolvido: não usa Action/OpenAPI — ChatGPT fala MCP nativo; conecta via Apps/Developer Mode direto no server, com `search`/`fetch` ajustados ao contrato do Deep Research~~ |
 | 10 | Gemini + MCP | O Gemini já suporta MCP nativamente em 2026? |
-| 11 | Observabilidade | O que a plataforma de deploy escolhida oferece de monitoring grátis? |
+| ~~11~~ | ~~Observabilidade~~ | ~~Resolvido: logs JSON estruturados (dashboard do Render) + tracing OTEL opt-in via Logfire; Prometheus+Grafana descartado como overkill nesta escala~~ |
 | 12 | Multi-idioma | Modelos atuais lidam bem com KB inteiramente em PT-BR? |
 | 13 | Pre-commit | Vale usar o framework `pre-commit` para hooks? |
 
