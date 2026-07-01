@@ -111,13 +111,29 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 - [ ] **Documentar configuração** para `claude_desktop_config.json` com URL pública (já tem template para localhost no README)
 - [ ] **Testar end-to-end**: validar que `search` e `fetch` funcionam corretamente via Claude Desktop conectado ao server remoto
 
-### 5.2 ChatGPT (Custom GPT Action)
+### 5.2 ChatGPT (MCP direto via Developer Mode / Apps)
 
-- [🔍] **Pesquisar formato de Action do ChatGPT**: entender spec OpenAPI / JSON Schema que o ChatGPT espera `[🔍 pesquisar documentação atualizada de Custom GPT Actions]`
-- [ ] **Gerar spec OpenAPI**: exportar ou criar manualmente a especificação OpenAPI do server para registrar como Action
-- [ ] **Autenticação para ChatGPT**: configurar API key ou OAuth para que o GPT se autentique no server
-- [ ] **Criar Custom GPT**: configurar no ChatGPT com instructions + Action apontando para URL pública
-- [ ] **Testar end-to-end**: validar busca e navegação pelo ChatGPT
+- [x] **Pesquisar formato de Action do ChatGPT**: resolvido — decisão registrada: **não** construir
+  Action/OpenAPI. ChatGPT já fala MCP nativamente; aponta-se o server direto via Apps/connectors
+  com Developer Mode ligado. Em Deep Research/Company Knowledge o ChatGPT só usa `search`/`fetch`;
+  as outras 4 tools só ficam disponíveis em modo chat com Developer Mode. `search`/`fetch` foram
+  ajustados para o contrato que o Deep Research exige: `search` retorna `{"results": [...]}` com
+  `id`/`title`/`text`/`url` por item (modelos `SearchResult`/`SearchResults` em `server.py`), e
+  `fetch` retorna um `Document` achatado com `id`/`title`/`text`/`url`/`metadata` (além dos campos
+  já existentes). Fatos atuais da OpenAI (fora do nosso controle): remote only (sem localhost),
+  HTTPS obrigatório; escrita completa via connector só em planos Business/Enterprise/Edu — não
+  afeta este server, que não implementa tools de escrita.
+- ~~[ ] **Gerar spec OpenAPI**~~ — decidido: não necessário. ChatGPT fala MCP nativo; Custom GPT
+  Action/OpenAPI é o caminho legado para isso.
+- [x] **Autenticação para ChatGPT**: já resolvido pelo middleware de API key estática (ver seção
+  "Autenticação do MCP server" acima, Fase 4.3 / `ApiKeyMiddleware`). ChatGPT informa a chave no
+  campo de autenticação do connector (`X-API-Key` ou `Authorization: Bearer`), igual ao fluxo já
+  documentado para Claude Desktop/Gemini no README.
+- [ ] **Criar o connector no ChatGPT**: configurar em Configurações → Connectors/Apps → Developer
+  Mode, apontando para a URL pública do server + a API key — não "Custom GPT", é um conector
+  MCP direto. Requer conta ChatGPT com acesso a Developer Mode (ação manual do Enzo).
+- [ ] **Testar end-to-end**: validar `search`/`fetch` (e, em modo chat com Developer Mode, as
+  demais tools) através do conector configurado.
 
 ### 5.3 Gemini
 
@@ -168,7 +184,7 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 | ~~6~~ | ~~Plataforma de deploy~~ | ~~Resolvido: Render free tier (→ Starter $7/mês se o cold start incomodar); config em `render.yaml`~~ |
 | 7 | CORS no FastMCP | FastMCP já configura CORS automaticamente? |
 | ~~8~~ | ~~Auth no FastMCP~~ | ~~Resolvido: middleware ASGI via `mcp.run(..., middleware=[Middleware(ApiKeyMiddleware)])` — API key estática, `MCP_API_KEYS`~~ |
-| 9 | ChatGPT Actions | Qual o formato atual da spec OpenAPI para Custom GPT Actions? |
+| ~~9~~ | ~~ChatGPT Actions~~ | ~~Resolvido: não usa Action/OpenAPI — ChatGPT fala MCP nativo; conecta via Apps/Developer Mode direto no server, com `search`/`fetch` ajustados ao contrato do Deep Research~~ |
 | 10 | Gemini + MCP | O Gemini já suporta MCP nativamente em 2026? |
 | 11 | Observabilidade | O que a plataforma de deploy escolhida oferece de monitoring grátis? |
 | 12 | Multi-idioma | Modelos atuais lidam bem com KB inteiramente em PT-BR? |

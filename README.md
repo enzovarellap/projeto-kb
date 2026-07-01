@@ -12,9 +12,14 @@ Origem (Google Drive)  →  Bundle OKF (kb/)  →  MCP server (server.py)
 
 - **Bundle OKF:** pasta de markdown com YAML frontmatter. Versionado neste repo.
 - **MCP server:** expõe 6 tools via `streamable-http` em `127.0.0.1:8000`:
-  - `search(query, limit, offset)` — busca multi-termo com relevância e normalização de acentos
+  - `search(query, limit, offset)` — busca multi-termo com relevância e normalização de acentos.
+    Retorna `{"results": [...]}` com `id`, `type`, `title`, `description`, e os campos
+    `text` (snippet) e `url` (`kb://<id>`) exigidos pelo contrato de busca do ChatGPT
+    Deep Research (ver [ChatGPT](#chatgpt-mcp-direto-via-developer-mode--apps))
   - `semantic_search(query, limit)` — busca por similaridade vetorial (ChromaDB + embeddings)
-  - `fetch(id)` — conceito completo com outgoing_links resolvidos
+  - `fetch(id)` — conceito completo com outgoing_links resolvidos; inclui também `text`
+    (mesmo conteúdo de `body`), `url` (`kb://<id>`) e `metadata`
+    (type/tags/timestamp/resource), compatível com o `Document` do Deep Research
   - `list_topics()` — árvore de navegação (índices + filhos)
   - `get_log(last_n)` — histórico de mudanças do bundle
   - `get_stats()` — estatísticas: total, por tipo, pastas, último timestamp
@@ -371,11 +376,32 @@ Se incomodar, dois caminhos:
 Não vale a pena tentar "keep-alive" com pinger externo para evitar o sleep — é
 gambiarra frágil e contra os termos de uso do Render.
 
-### ChatGPT (OAuth / Developer Mode)
-Para plugar o server no ChatGPT como "Custom GPT Action":
-1. Criar um GPT no ChatGPT.
-2. Adicionar uma Action apontando para a URL pública do server.
-3. Configurar autenticação (API Key ou OAuth).
+### ChatGPT (MCP direto via Developer Mode / Apps)
+Decisão registrada em `TODO.md` (Fase 5.2): **não** construir um Custom GPT Action /
+spec OpenAPI separado. ChatGPT já fala MCP nativamente — o server deste repo é
+apontado direto via **Apps/connectors com Developer Mode** ligado, sem duplicar
+lógica numa API REST paralela.
+
+- As tools `search(query, ...)` e `fetch(id)` já seguem o contrato exigido pelo
+  ChatGPT Deep Research: `search` retorna `{"results": [...]}` (cada item com
+  `id`, `title`, `text` — snippet — e `url` no formato `kb://<id>`) e `fetch`
+  retorna um `Document` achatado com `id`, `title`, `text` (conteúdo completo,
+  mesmo valor de `body`), `url` e `metadata` (type/tags/timestamp/resource). Ver
+  `SearchResult`/`SearchResults`/`Document` em `server.py`.
+- Em **Deep Research / Company Knowledge**, o ChatGPT só chama `search` e
+  `fetch` — as outras 4 tools (`semantic_search`, `list_topics`, `get_log`,
+  `get_stats`) só ficam disponíveis em modo chat normal com Developer Mode
+  ligado (conector completo).
+- **Gating por plano (fato atual da OpenAI, fora do nosso controle):** o server
+  precisa estar em HTTPS público (sem localhost); acesso de escrita completo via
+  connector só é liberado em planos Business/Enterprise/Edu — Plus/Pro ficam
+  limitados a leitura (`search`/`fetch`). Isso não afeta este server porque
+  nenhuma tool de escrita foi implementada aqui (decisão separada, ver `TODO.md`).
+- **Passo manual pendente (Enzo):** criar o connector de fato no ChatGPT
+  (Configurações → Connectors/Apps → Developer Mode → adicionar servidor MCP
+  apontando para a URL pública + `MCP_API_KEYS`, igual ao Claude Desktop acima)
+  e testar `search`/`fetch` end-to-end — isso exige uma conta ChatGPT com acesso
+  a Developer Mode e não é automatizável a partir daqui.
 
 ### Embeddings / Vector DB
 Implementado na Fase 2. Rode `make index` para gerar os embeddings e use `semantic_search` via MCP.
