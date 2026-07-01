@@ -100,6 +100,7 @@ def _log_tool_call(tool_name: str, metrics=None):
 
     return decorator
 
+
 KB = Path(os.environ.get("KB_PATH", Path(__file__).parent / "kb"))
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8000"))
@@ -376,8 +377,14 @@ def _search_impl(query: str, limit: int = 8, offset: int = 0) -> list[dict]:
         ]
 
     if len(raw) > MAX_QUERY_LENGTH:
-        return [{"id": "", "type": "", "title": "Query muito longa",
-                 "description": f"Limite de {MAX_QUERY_LENGTH} caracteres. Reduza a consulta."}]
+        return [
+            {
+                "id": "",
+                "type": "",
+                "title": "Query muito longa",
+                "description": f"Limite de {MAX_QUERY_LENGTH} caracteres. Reduza a consulta.",
+            }
+        ]
 
     limit = min(limit, MAX_RESULTS)
 
@@ -525,14 +532,18 @@ def _get_index_impl(id: str) -> dict:
                 child_id = lnk.replace(".md", "").lstrip("/")
                 child_doc = next((doc for doc in _all() if doc["id"] == child_id), None)
                 if child_doc:
-                    children.append({
-                        "id": child_doc["id"],
-                        "title": child_doc["title"],
-                        "type": child_doc["type"],
-                        "description": child_doc["description"],
-                    })
+                    children.append(
+                        {
+                            "id": child_doc["id"],
+                            "title": child_doc["title"],
+                            "type": child_doc["type"],
+                            "description": child_doc["description"],
+                        }
+                    )
                 else:
-                    children.append({"id": child_id, "title": child_id, "type": "?", "description": ""})
+                    children.append(
+                        {"id": child_id, "title": child_id, "type": "?", "description": ""}
+                    )
             log.info("get_index(%r) → %s (%d filhos)", id, d["title"], len(children))
             return {
                 "id": d["id"],
@@ -543,8 +554,7 @@ def _get_index_impl(id: str) -> dict:
             }
 
     log.warning("get_index(%r) → não encontrado", id)
-    return {"id": id, "title": "Índice não encontrado",
-            "children": []}
+    return {"id": id, "title": "Índice não encontrado", "children": []}
 
 
 # ---------------------------------------------------------------------------
@@ -561,6 +571,7 @@ def _load_semantic_index():
         return _semantic_index
     try:
         from embeddings import CHROMA_DIR, SemanticIndex
+
         chroma_path = Path(CHROMA_DIR)
         if chroma_path.exists():
             _semantic_index = SemanticIndex(kb_root=KB)
@@ -578,12 +589,24 @@ def _semantic_search_impl(query: str, limit: int = 5) -> list[dict]:
     """Busca semântica com fallback para keyword search."""
     raw = query.strip()
     if not raw:
-        return [{"id": "", "type": "", "title": "Query vazia",
-                 "description": "Forneça pelo menos um termo de busca."}]
+        return [
+            {
+                "id": "",
+                "type": "",
+                "title": "Query vazia",
+                "description": "Forneça pelo menos um termo de busca.",
+            }
+        ]
 
     if len(raw) > MAX_QUERY_LENGTH:
-        return [{"id": "", "type": "", "title": "Query muito longa",
-                 "description": f"Limite de {MAX_QUERY_LENGTH} caracteres."}]
+        return [
+            {
+                "id": "",
+                "type": "",
+                "title": "Query muito longa",
+                "description": f"Limite de {MAX_QUERY_LENGTH} caracteres.",
+            }
+        ]
 
     limit = min(limit, MAX_RESULTS)
 
@@ -595,19 +618,29 @@ def _semantic_search_impl(query: str, limit: int = 5) -> list[dict]:
     hits = idx.query(raw, n_results=limit)
 
     from embeddings import SCORE_THRESHOLD
+
     if not hits or hits[0].get("score", 0) < SCORE_THRESHOLD:
         keyword_results = _search_impl(raw, limit)
         seen_ids = {h["id"] for h in hits}
         for kr in keyword_results:
-            if kr["id"] not in seen_ids and kr.get("title") not in ("Nada encontrado", "Query vazia"):
+            if kr["id"] not in seen_ids and kr.get("title") not in (
+                "Nada encontrado",
+                "Query vazia",
+            ):
                 hits.append(kr)
                 seen_ids.add(kr["id"])
             if len(hits) >= limit:
                 break
 
     log.info("semantic_search(%r) → %d resultados", raw, len(hits))
-    return hits or [{"id": "", "type": "", "title": "Nada encontrado",
-                     "description": f"Sem resultado para '{raw}'."}]
+    return hits or [
+        {
+            "id": "",
+            "type": "",
+            "title": "Nada encontrado",
+            "description": f"Sem resultado para '{raw}'.",
+        }
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -663,9 +696,14 @@ class Document(BaseModel):
 
 
 @mcp.tool
-@_log_tool_call("search", metrics=lambda query, limit=8, offset=0: {
-    "query_len": len(query), "limit": limit, "offset": offset,
-})
+@_log_tool_call(
+    "search",
+    metrics=lambda query, limit=8, offset=0: {
+        "query_len": len(query),
+        "limit": limit,
+        "offset": offset,
+    },
+)
 def search(query: str, limit: int = 8, offset: int = 0) -> SearchResults:
     """Procura conceitos por palavra-chave em title, description, tags e corpo.
     Suporta multiplos termos (AND): 'motor eletrico' exige ambas as palavras.
@@ -680,9 +718,13 @@ def search(query: str, limit: int = 8, offset: int = 0) -> SearchResults:
 
 
 @mcp.tool
-@_log_tool_call("semantic_search", metrics=lambda query, limit=5: {
-    "query_len": len(query), "limit": limit,
-})
+@_log_tool_call(
+    "semantic_search",
+    metrics=lambda query, limit=5: {
+        "query_len": len(query),
+        "limit": limit,
+    },
+)
 def semantic_search(query: str, limit: int = 5) -> list[dict]:
     """Busca semântica por similaridade vetorial. Encontra conceitos relevantes
     mesmo quando os termos exatos não aparecem no texto (ex: 'triturar plástico'
@@ -740,6 +782,7 @@ def get_index(id: str = "index") -> dict:
 # Health check
 # ---------------------------------------------------------------------------
 
+
 @mcp.custom_route("/health", ["GET"])
 async def health_check(request):
     doc_count = len(_all())
@@ -772,7 +815,7 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
         if not api_key:
             auth_header = request.headers.get("authorization", "")
             if auth_header.lower().startswith("bearer "):
-                api_key = auth_header[len("bearer "):].strip()
+                api_key = auth_header[len("bearer ") :].strip()
 
         if api_key not in self.valid_keys:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
