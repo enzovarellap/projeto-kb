@@ -1,0 +1,34 @@
+# Blueprint de deploy no Render (https://render.com/docs/blueprint-spec).
+# Decisão registrada em TODO.md (Fase 4.1): Render free tier para destravar
+# agora; migrar para o plano Starter ($7/mes, sem cold start) ou para
+# Coolify/Oracle Cloud Always Free se o spin-down do free incomodar.
+#
+# Uso: no dashboard do Render, "New +" -> "Blueprint" -> conectar este repo.
+# O Render le este arquivo e cria o serviço automaticamente.
+services:
+  - type: web
+    name: projeto-kb
+    runtime: docker
+    plan: free            # troque p/ "starter" ($7/mo) p/ eliminar o cold start
+    healthCheckPath: /health
+    autoDeploy: true      # CD automático a cada push na branch conectada
+    envVars:
+      # Bind — o Render injeta PORT automaticamente para serviços web
+      # (usa o valor dele, não sobrescrever aqui: server.py já lê
+      # HOST/PORT via os.environ com fallback 127.0.0.1/8000).
+      - key: HOST
+        value: 0.0.0.0
+      - key: KB_PATH
+        value: /app/kb
+      - key: MAX_RESULTS
+        value: 50
+      - key: MAX_QUERY_LENGTH
+        value: 500
+      - key: RATE_LIMIT_MAX
+        value: 60
+      - key: RATE_LIMIT_WINDOW
+        value: 60
+      # Secret — setar manualmente no dashboard do Render (Environment ->
+      # Secret File ou Environment Variable). Vazio/ausente = auth desligada.
+      - key: MCP_API_KEYS
+        sync: false

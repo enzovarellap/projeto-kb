@@ -79,7 +79,7 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 
 ### 4.1 Deploy do server para URL pública
 
-- [🔍] **Escolher plataforma de deploy**: avaliar Render vs. Railway vs. Fly.io vs. FastMCP Cloud `[🔍 pesquisar custo (free tier), latência, facilidade, suporte a streamable-http]`
+- [x] **Escolher plataforma de deploy**: **Render**, plano free (destravar agora) → upgrade para Starter ($7/mês, sem cold start) quando o sleep incomodar, ou migrar para Coolify (Hetzner ~€4/mês) / Oracle Cloud Always Free se quiser fugir de custo recorrente. Justificativa: única opção das quatro avaliadas com free tier real sem cartão de crédito, HTTPS automático, deploy via GitHub, Docker e env/secrets prontos — Fly.io matou o free tier para contas novas, Railway não tem free permanente. Config entregue em `render.yaml` (raiz do repo), usando o `Dockerfile` e o endpoint `/health` já existentes — nenhuma mudança em `server.py` foi necessária. **Pendente (manual, ação do Enzo):** criar conta no Render e conectar o repositório via dashboard — não automatizável a partir daqui (ver `README.md` → Pendências → Deploy do MCP server).
 - [x] **Dockerfile**: imagem Docker baseada em `python:3.12-slim` com healthcheck integrado
 - [x] **Variáveis de ambiente**: `HOST`, `PORT`, `KB_PATH`, `MAX_RESULTS`, `MAX_QUERY_LENGTH` via env vars (+ `.env.example`)
 - [x] **Health check**: endpoint `/health` via `@mcp.custom_route` retorna `{"status":"ok","documents":N}`
@@ -165,7 +165,7 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 | ~~3~~ | ~~Vector DB~~ | ~~Resolvido: ChromaDB — zero-infra, persistente, API simples~~ |
 | ~~4~~ | ~~Embeddings PT-BR~~ | ~~Resolvido: default ONNX (all-MiniLM-L6-v2); multilingual via --model~~ |
 | 5 | Google Drive MCP | Existe MCP server de Google Drive pronto para reusar? |
-| 6 | Plataforma de deploy | Render vs Railway vs Fly.io — qual tem melhor free tier para MCP? |
+| ~~6~~ | ~~Plataforma de deploy~~ | ~~Resolvido: Render free tier (→ Starter $7/mês se o cold start incomodar); config em `render.yaml`~~ |
 | 7 | CORS no FastMCP | FastMCP já configura CORS automaticamente? |
 | ~~8~~ | ~~Auth no FastMCP~~ | ~~Resolvido: middleware ASGI via `mcp.run(..., middleware=[Middleware(ApiKeyMiddleware)])` — API key estática, `MCP_API_KEYS`~~ |
 | 9 | ChatGPT Actions | Qual o formato atual da spec OpenAPI para Custom GPT Actions? |
@@ -181,7 +181,7 @@ Status: `[x]` feito · `[ ]` pendente · `[🔍]` requer pesquisa antes de imple
 ```
 Fase 1 (robustez)     ████████░░  ← próxima — melhora o que já existe
 Fase 2 (semântica)    ██████████  ✅ COMPLETA
-Fase 4 (deploy + CI)  ██████░░░░  ← habilita fases 3 e 5
+Fase 4 (deploy + CI)  ███████░░░  ← plataforma decidida (Render); falta criar conta/conectar repo
 Fase 3 (Google Drive) ████░░░░░░  ← depende de ação humana (credentials)
 Fase 5 (multi-AI)     ████░░░░░░  ← depende do deploy (fase 4)
 Fase 6 (qualidade)    ███░░░░░░░  ← contínua, em paralelo

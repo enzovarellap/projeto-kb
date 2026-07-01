@@ -192,6 +192,35 @@ make docker-run
 # ou: docker run -p 8000:8000 -e HOST=0.0.0.0 -e PORT=8000 projeto-kb
 ```
 
+### Deploy (Render)
+
+O repositório inclui `render.yaml` (Blueprint spec do Render) na raiz, pronto para uso:
+
+```yaml
+services:
+  - type: web
+    name: projeto-kb
+    runtime: docker        # usa o Dockerfile já existente
+    plan: free              # trocar por "starter" p/ eliminar cold start
+    healthCheckPath: /health
+    autoDeploy: true        # redeploy automático a cada push
+    envVars:
+      - key: MCP_API_KEYS
+        sync: false          # secret, setado manualmente no dashboard
+      # HOST, KB_PATH, MAX_RESULTS, MAX_QUERY_LENGTH, RATE_LIMIT_MAX,
+      # RATE_LIMIT_WINDOW também são declaradas com defaults sensatos.
+```
+
+Ele usa o `Dockerfile` já existente (nenhuma mudança de código foi necessária: `server.py`
+já lê `HOST`/`PORT` de env vars e o Render injeta `PORT` automaticamente em serviços web
+docker) e aponta `healthCheckPath` para o endpoint `/health` que já existe no server.
+
+Para usar, depois de ter acesso a uma conta Render: dashboard → "New +" → "Blueprint" →
+conectar este repositório. O Render lê `render.yaml` e cria o serviço sozinho; só falta
+setar o secret `MCP_API_KEYS` na tela de Environment. Detalhes do que ainda é manual e
+do trade-off do plano free (cold start) estão em
+[Pendências → Deploy do MCP server](#deploy-do-mcp-server).
+
 ### Lint e formatação
 
 ```bash
@@ -316,9 +345,31 @@ As etapas abaixo requerem ação do Enzo:
 4. Executar `make sync-drive FOLDER_ID=<id>` — o browser abrirá para autorizar.
 
 ### Deploy do MCP server
-O server hoje roda localmente em `127.0.0.1:8000`. Para expor na internet:
-- **FastMCP Cloud:** `fastmcp deploy server.py` (requer conta).
-- **Render / Railway:** criar serviço web apontando para `python server.py`.
+Decisão registrada em `TODO.md` (Fase 4.1): **Render**, plano free, via `render.yaml`
+(veja a seção [Deploy (Render)](#deploy-render) abaixo). É a única das opções avaliadas
+(Render, Railway, Fly.io, FastMCP Cloud) com free tier real sem cartão de crédito,
+HTTPS automático, deploy via GitHub e suporte a Docker + streamable-http.
+
+O que falta é só a parte que exige conta/dashboard (não automatizável a partir daqui):
+1. Criar conta no [Render](https://render.com) (sem cartão de crédito no free tier).
+2. "New +" → "Blueprint" → conectar o repositório GitHub `projeto-kb`. O Render lê
+   `render.yaml` da raiz e cria o serviço web automaticamente.
+3. No dashboard do serviço, em Environment, setar o secret `MCP_API_KEYS` (o
+   `render.yaml` já declara a chave com `sync: false`, então o Render vai pedir o
+   valor na hora de criar o serviço).
+4. Disparar o primeiro deploy (automático após o blueprint ser aplicado).
+
+**Cold start (plano free):** o serviço dorme após 15 min de inatividade; a primeira
+chamada depois disso acorda o dyno em ~30-50s, o que pode estourar timeout de cliente
+MCP. Teste esse comportamento antes de depender do free tier para algo user-facing.
+Se incomodar, dois caminhos:
+- Upgrade para o plano **Starter** ($7/mês, sem sleep) — só trocar `plan: free` por
+  `plan: starter` em `render.yaml`.
+- Migrar para **Coolify** num VPS barato (Hetzner ~€4/mês) ou **Oracle Cloud Always
+  Free** (VM ARM always-on, 100% grátis) se quiser fugir de custo recorrente.
+
+Não vale a pena tentar "keep-alive" com pinger externo para evitar o sleep — é
+gambiarra frágil e contra os termos de uso do Render.
 
 ### ChatGPT (OAuth / Developer Mode)
 Para plugar o server no ChatGPT como "Custom GPT Action":
