@@ -1,4 +1,5 @@
 """Testes para ingest.py — conversão de arquivos locais em conceitos OKF."""
+
 import sys
 from pathlib import Path
 
@@ -40,38 +41,46 @@ def src_dir(tmp_path):
 class TestSlug:
     def test_basic_slug(self):
         from ingest import _slug
+
         assert _slug("Relatório Final.pdf") == "relatório-final"
 
     def test_slug_removes_special_chars(self):
         from ingest import _slug
+
         assert _slug("hello@world!.txt") == "helloworld"
 
     def test_slug_dotfile_produces_stem(self):
         from ingest import _slug
+
         assert _slug(".hidden") == "hidden"
 
     def test_slug_underscores(self):
         from ingest import _slug
+
         assert _slug("meu_arquivo_teste.md") == "meu-arquivo-teste"
 
 
 class TestExtractTitle:
     def test_extracts_h1(self):
         from ingest import _extract_title
+
         assert _extract_title("# Meu Título\n\nCorpo.", "fallback") == "Meu Título"
 
     def test_fallback_when_no_h1(self):
         from ingest import _extract_title
+
         assert _extract_title("Sem heading.\n\nTexto.", "Fallback") == "Fallback"
 
     def test_ignores_h2(self):
         from ingest import _extract_title
+
         assert _extract_title("## Sub-heading\n\nTexto.", "Fallback") == "Fallback"
 
 
 class TestConvert:
     def test_md_passthrough(self, src_dir):
         from ingest import _convert
+
         md_file = src_dir / "teste.md"
         md_file.write_text("# Título\n\nConteúdo.", encoding="utf-8")
         result = _convert(md_file)
@@ -80,6 +89,7 @@ class TestConvert:
 
     def test_txt_passthrough(self, src_dir):
         from ingest import _convert
+
         txt_file = src_dir / "teste.txt"
         txt_file.write_text("Texto simples aqui.", encoding="utf-8")
         result = _convert(txt_file)
@@ -89,6 +99,7 @@ class TestConvert:
 class TestIngest:
     def test_ingests_md_file(self, kb_bundle, src_dir):
         from ingest import ingest
+
         kb, out = kb_bundle
 
         (src_dir / "conceito-a.md").write_text(
@@ -105,17 +116,17 @@ class TestIngest:
 
     def test_ingests_txt_file(self, kb_bundle, src_dir):
         from ingest import ingest
+
         kb, out = kb_bundle
 
-        (src_dir / "nota.txt").write_text(
-            "Texto de uma nota simples.", encoding="utf-8"
-        )
+        (src_dir / "nota.txt").write_text("Texto de uma nota simples.", encoding="utf-8")
 
         result = ingest(src_dir, out)
         assert len(result) == 1
 
     def test_custom_type(self, kb_bundle, src_dir):
         from ingest import ingest
+
         kb, out = kb_bundle
 
         (src_dir / "metodo.md").write_text("# Método\n\nDetalhe.", encoding="utf-8")
@@ -126,6 +137,7 @@ class TestIngest:
 
     def test_idempotent_update(self, kb_bundle, src_dir):
         from ingest import ingest
+
         kb, out = kb_bundle
 
         (src_dir / "doc.md").write_text("# Doc\n\nVersão 1.", encoding="utf-8")
@@ -139,6 +151,7 @@ class TestIngest:
 
     def test_creates_index(self, kb_bundle, src_dir):
         from ingest import ingest
+
         kb, out = kb_bundle
 
         (src_dir / "a.md").write_text("# A\n\nTexto A.", encoding="utf-8")
@@ -151,12 +164,14 @@ class TestIngest:
 
     def test_empty_source_returns_empty(self, kb_bundle, src_dir):
         from ingest import ingest
+
         kb, out = kb_bundle
         result = ingest(src_dir, out)
         assert result == []
 
     def test_ignores_unsupported_format(self, kb_bundle, src_dir):
         from ingest import ingest
+
         kb, out = kb_bundle
 
         (src_dir / "imagem.png").write_bytes(b"\x89PNG\r\n")
@@ -165,6 +180,7 @@ class TestIngest:
 
     def test_updates_log(self, kb_bundle, src_dir):
         from ingest import ingest
+
         kb, out = kb_bundle
 
         (src_dir / "novo.md").write_text("# Novo\n\nConteúdo.", encoding="utf-8")
@@ -175,6 +191,7 @@ class TestIngest:
 
     def test_multiple_files(self, kb_bundle, src_dir):
         from ingest import ingest
+
         kb, out = kb_bundle
 
         (src_dir / "a.md").write_text("# A\n\nTexto A.", encoding="utf-8")

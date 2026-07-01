@@ -74,9 +74,13 @@ class TestLogToolCallDecorator:
         assert events[0]["status"] == "error"
 
     def test_metrics_callback_adds_fields_without_leaking_raw_content(self, caplog):
-        @srv._log_tool_call("search_like", metrics=lambda query, limit=8: {
-            "query_len": len(query), "limit": limit,
-        })
+        @srv._log_tool_call(
+            "search_like",
+            metrics=lambda query, limit=8: {
+                "query_len": len(query),
+                "limit": limit,
+            },
+        )
         def fn(query, limit=8):
             return ["hit"]
 

@@ -1,4 +1,5 @@
 """Testes estendidos para server.py — edge cases, limites, get_index, semantic_search."""
+
 import sys
 import textwrap
 from pathlib import Path
@@ -141,31 +142,37 @@ def kb_de_teste(tmp_path: Path, monkeypatch):
 # get_index — nova tool
 # ---------------------------------------------------------------------------
 
+
 class TestGetIndex:
     def test_root_index(self):
         import server as srv
+
         result = srv._get_index_impl("index")
         assert result["title"] == "KB Raiz"
         assert len(result["children"]) == 2
 
     def test_index_by_folder_name(self):
         import server as srv
+
         result = srv._get_index_impl("conceitos")
         assert result["title"] == "Conceitos"
         assert len(result["children"]) == 2
 
     def test_index_with_slash_suffix(self):
         import server as srv
+
         result = srv._get_index_impl("metodos/")
         assert result["title"] == "Métodos de Trituração"
 
     def test_index_full_path(self):
         import server as srv
+
         result = srv._get_index_impl("metodos/index")
         assert result["title"] == "Métodos de Trituração"
 
     def test_children_have_metadata(self):
         import server as srv
+
         result = srv._get_index_impl("conceitos")
         child = next(c for c in result["children"] if c["id"] == "conceitos/alpha")
         assert child["title"] == "Alpha"
@@ -173,11 +180,13 @@ class TestGetIndex:
 
     def test_nonexistent_index(self):
         import server as srv
+
         result = srv._get_index_impl("nao-existe")
         assert "não encontrado" in result["title"].lower() or result["children"] == []
 
     def test_empty_string_returns_root(self):
         import server as srv
+
         result = srv._get_index_impl("")
         assert result["title"] == "KB Raiz"
 
@@ -186,31 +195,37 @@ class TestGetIndex:
 # Timeout e limites
 # ---------------------------------------------------------------------------
 
+
 class TestQueryLimits:
     def test_very_long_query_rejected(self):
         import server as srv
+
         long_query = "a " * 300
         result = srv._search_impl(long_query)
         assert result[0]["title"] == "Query muito longa"
 
     def test_limit_capped_at_max(self):
         import server as srv
+
         result = srv._search_impl("conceito", limit=1000)
         assert len(result) <= srv.MAX_RESULTS
 
     def test_semantic_search_long_query_rejected(self):
         import server as srv
+
         long_query = "a " * 300
         result = srv._semantic_search_impl(long_query)
         assert result[0]["title"] == "Query muito longa"
 
     def test_semantic_search_empty_query(self):
         import server as srv
+
         result = srv._semantic_search_impl("")
         assert result[0]["title"] == "Query vazia"
 
     def test_semantic_search_spaces_query(self):
         import server as srv
+
         result = srv._semantic_search_impl("   ")
         assert result[0]["title"] == "Query vazia"
 
@@ -219,29 +234,35 @@ class TestQueryLimits:
 # Caracteres especiais
 # ---------------------------------------------------------------------------
 
+
 class TestSpecialCharacters:
     def test_search_with_regex_chars(self):
         import server as srv
+
         result = srv._search_impl("motor.*eletrico")
         assert isinstance(result, list)
 
     def test_search_with_brackets(self):
         import server as srv
+
         result = srv._search_impl("[alpha]")
         assert isinstance(result, list)
 
     def test_search_with_parentheses(self):
         import server as srv
+
         result = srv._search_impl("(conceito)")
         assert isinstance(result, list)
 
     def test_search_with_unicode(self):
         import server as srv
+
         result = srv._search_impl("café résumé naïve")
         assert isinstance(result, list)
 
     def test_fetch_with_special_chars(self):
         import server as srv
+
         result = srv._fetch_impl("conceitos/<script>")
         assert "Nao encontrado" in result["title"]
 
@@ -250,9 +271,11 @@ class TestSpecialCharacters:
 # Semantic search fallback
 # ---------------------------------------------------------------------------
 
+
 class TestSemanticSearchFallback:
     def test_fallback_when_no_index(self, monkeypatch):
         import server as srv
+
         monkeypatch.setattr(srv, "_load_semantic_index", lambda: None)
         result = srv._semantic_search_impl("alpha")
         assert len(result) > 0
@@ -260,6 +283,7 @@ class TestSemanticSearchFallback:
 
     def test_semantic_search_returns_list(self, monkeypatch):
         import server as srv
+
         monkeypatch.setattr(srv, "_load_semantic_index", lambda: None)
         result = srv._semantic_search_impl("motor")
         assert isinstance(result, list)
@@ -269,8 +293,10 @@ class TestSemanticSearchFallback:
 # Environment variables
 # ---------------------------------------------------------------------------
 
+
 class TestEnvVars:
     def test_defaults_loaded(self):
         import server as srv
+
         assert srv.MAX_RESULTS == 50
         assert srv.MAX_QUERY_LENGTH == 500
