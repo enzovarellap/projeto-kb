@@ -10,6 +10,7 @@ from pathlib import Path
 
 import frontmatter
 from fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 from pydantic import BaseModel
 from rapidfuzz import fuzz
 from starlette.middleware import Middleware
@@ -110,12 +111,21 @@ MAX_QUERY_LENGTH = int(os.environ.get("MAX_QUERY_LENGTH", "500"))
 mcp = FastMCP(
     name="projeto-kb",
     instructions=(
-        "Base de conhecimento compartilhada em formato OKF (markdown + frontmatter). "
-        "Use 'search' para localizar conceitos e 'fetch' para ler um conceito pelo id "
-        "(caminho relativo sem .md). Use 'list_topics' para ver a arvore de navegacao, "
-        "'get_log' para o historico de mudancas, e 'get_stats' para estatisticas do bundle. "
-        "Use 'get_index' para ver o conteudo de um indice especifico. "
-        "Comece pelos index e siga os outgoing_links."
+        "Base de conhecimento compartilhada (projeto Trituradora FDM) em formato OKF "
+        "(markdown + frontmatter). Todas as tools sao somente leitura. Fluxo recomendado:\n"
+        "1. Sem saber exatamente o que procurar? Comece por 'list_topics' (arvore completa) "
+        "ou 'get_index' (detalhe de uma secao) para se orientar.\n"
+        "2. Sabe termos especificos (nomes tecnicos, siglas, pecas)? Use 'search' primeiro "
+        "— busca por palavra-chave, tolera acentos e typos.\n"
+        "3. 'search' nao achou nada util, ou a pergunta e conceitual/parafraseada (nao usa "
+        "os termos exatos do KB)? Use 'semantic_search' como proximo passo.\n"
+        "4. Achou o id certo? Sempre chame 'fetch' para ler o conteudo completo antes de "
+        "responder — search/semantic_search/list_topics/get_index retornam so id, titulo "
+        "e um resumo curto, nunca o texto completo.\n"
+        "5. Pergunta sobre o que mudou recentemente? Use 'get_log'. Pergunta sobre tamanho/"
+        "composicao do bundle (quantos conceitos, quais tipos)? Use 'get_stats'.\n"
+        "Depois do fetch, siga os outgoing_links retornados para continuar navegando o "
+        "grafo de conhecimento."
     ),
 )
 
@@ -695,7 +705,10 @@ class Document(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool
+_READ_ONLY = ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHint=False)
+
+
+@mcp.tool(title="Buscar por palavra-chave", annotations=_READ_ONLY)
 @_log_tool_call(
     "search",
     metrics=lambda query, limit=8, offset=0: {
@@ -705,10 +718,17 @@ class Document(BaseModel):
     },
 )
 def search(query: str, limit: int = 8, offset: int = 0) -> SearchResults:
-    """Procura conceitos por palavra-chave em title, description, tags e corpo.
+    """PRIMEIRA ESCOLHA quando você já sabe termos específicos que devem aparecer
+    no texto (nomes técnicos, siglas, nomes de peças/métodos). Procura por
+    palavra-chave em title, description, tags e corpo.
     Suporta multiplos termos (AND): 'motor eletrico' exige ambas as palavras.
     Tolerante a acentos ('trituracao' → 'trituração') e typos ('triturdora' → 'trituradora').
     Resultados ordenados por relevancia. Use offset para paginar.
+
+    Retorna apenas id/título/snippet — NÃO o conteúdo completo. Depois de achar
+    o id certo, chame 'fetch' para ler o documento inteiro antes de responder.
+    Se não encontrar nada útil, ou se a pergunta for conceitual/parafraseada
+    (não usa os termos exatos do KB), tente 'semantic_search' em seguida.
 
     Compatível com o contrato search/fetch do ChatGPT Deep Research: cada
     resultado inclui `text` (snippet) e `url` (kb://<id>), e a resposta vem
@@ -717,7 +737,7 @@ def search(query: str, limit: int = 8, offset: int = 0) -> SearchResults:
     return SearchResults(results=[SearchResult(**h) for h in hits])
 
 
-@mcp.tool
+@mcp.tool(title="Busca semântica (similaridade)", annotations=_READ_ONLY)
 @_log_tool_call(
     "semantic_search",
     metrics=lambda query, limit=5: {
@@ -726,19 +746,29 @@ def search(query: str, limit: int = 8, offset: int = 0) -> SearchResults:
     },
 )
 def semantic_search(query: str, limit: int = 5) -> list[dict]:
-    """Busca semântica por similaridade vetorial. Encontra conceitos relevantes
-    mesmo quando os termos exatos não aparecem no texto (ex: 'triturar plástico'
-    encontra documentos sobre 'granulador de polímeros'). Retorna resultados
-    ordenados por score de similaridade (0-1). Faz fallback automático para
-    busca por keyword se o índice semântico não estiver disponível."""
+    """SEGUNDA ESCOLHA: use quando 'search' (palavra-chave) não encontrar nada
+    relevante, ou quando a pergunta é conceitual/parafraseada e pode não usar as
+    mesmas palavras do texto original (ex: 'triturar plástico' encontra
+    documentos sobre 'granulador de polímeros'). Busca por similaridade vetorial
+    (embeddings) — mais tolerante a diferenças de vocabulário, porém mais lenta
+    e menos previsível que 'search' para termos técnicos exatos que você já
+    conhece. Retorna resultados ordenados por score de similaridade (0-1) e faz
+    fallback automático para busca por keyword se o índice semântico não estiver
+    disponível.
+
+    Retorna apenas id/título/resumo — NÃO o conteúdo completo. Depois de achar
+    o id certo, chame 'fetch' para ler o documento inteiro antes de responder."""
     return _semantic_search_impl(query, limit)
 
 
-@mcp.tool
+@mcp.tool(title="Ler conceito completo", annotations=_READ_ONLY)
 @_log_tool_call("fetch", metrics=lambda id: {"id_len": len(id)})
 def fetch(id: str) -> Document:
-    """Retorna o conceito completo pelo id, com outgoing_links (ids dos conceitos
-    referenciados no corpo) para a IA continuar navegando o grafo.
+    """Retorna o conceito COMPLETO pelo id (obtido via search/semantic_search/
+    list_topics/get_index). Chame esta tool sempre antes de responder com
+    conteúdo do KB — as outras tools retornam só id/título/snippet, nunca o
+    texto integral. A resposta inclui outgoing_links (ids dos conceitos
+    referenciados no corpo) para continuar navegando o grafo de conhecimento.
 
     Compatível com o contrato search/fetch do ChatGPT Deep Research: o campo
     `text` traz o conteúdo completo (igual a `body`), `url` usa o esquema
@@ -746,35 +776,49 @@ def fetch(id: str) -> Document:
     return Document(**_fetch_impl(id))
 
 
-@mcp.tool
+@mcp.tool(title="Árvore de navegação completa", annotations=_READ_ONLY)
 @_log_tool_call("list_topics")
 def list_topics() -> list[dict]:
-    """Retorna a arvore de navegacao do bundle: cada indice com seus filhos.
-    Bom ponto de partida para explorar a base de conhecimento."""
+    """Retorna a árvore de navegação COMPLETA do bundle: todos os índices
+    (index.md de cada pasta) com a lista de ids dos filhos. Bom ponto de
+    partida quando o usuário não especificou um conceito exato e é preciso
+    entender a estrutura geral do KB antes de buscar. Para ver detalhes
+    (título/tipo/descrição) dos filhos de UM índice específico em vez de só
+    os ids, use 'get_index' — mais barato que dar fetch em cada filho."""
     return _list_topics_impl()
 
 
-@mcp.tool
+@mcp.tool(title="Histórico de mudanças", annotations=_READ_ONLY)
 @_log_tool_call("get_log", metrics=lambda last_n=20: {"last_n": last_n})
 def get_log(last_n: int = 20) -> dict:
-    """Retorna as ultimas N entradas do historico de mudancas do bundle."""
+    """Retorna as últimas N entradas do histórico de mudanças do bundle
+    (log.md). Use quando a pergunta for sobre o que mudou recentemente, sobre
+    decisões/eventos registrados ao longo do tempo, ou para checar se há
+    atualizações desde a última consulta. Não é uma tool de busca de
+    conteúdo — para isso use 'search' ou 'semantic_search'."""
     return _get_log_impl(last_n)
 
 
-@mcp.tool
+@mcp.tool(title="Estatísticas do bundle", annotations=_READ_ONLY)
 @_log_tool_call("get_stats")
 def get_stats() -> dict:
-    """Retorna estatisticas do bundle: total de conceitos, contagem por tipo,
-    pastas existentes e timestamp da ultima atualizacao."""
+    """Retorna estatísticas agregadas do bundle: total de conceitos, contagem
+    por tipo, pastas existentes e timestamp da última atualização. Use para
+    uma visão geral rápida do tamanho/composição do KB (ex: "quantos
+    documentos existem", "que tipos de conteúdo tem") — não retorna
+    conteúdo, só números."""
     return _get_stats_impl()
 
 
-@mcp.tool
+@mcp.tool(title="Detalhe de um índice", annotations=_READ_ONLY)
 @_log_tool_call("get_index", metrics=lambda id="index": {"id_len": len(id)})
 def get_index(id: str = "index") -> dict:
-    """Retorna o conteudo de um indice (index.md) especifico com seus filhos resolvidos.
-    Cada filho inclui id, title, type e description. Atalho para navegacao sem precisar
-    fazer fetch generico. Aceita id com ou sem '/index' (ex: 'metodos' ou 'metodos/index')."""
+    """Retorna o conteúdo de UM índice (index.md) específico com os filhos já
+    resolvidos (id, title, type e description de cada um) — mais informativo
+    que 'list_topics' para navegar uma seção, porém cobre só aquele índice
+    (não a árvore inteira). Atalho para navegação sem precisar fazer fetch
+    genérico em cada filho. Aceita id com ou sem '/index' (ex: 'metodos' ou
+    'metodos/index'); sem argumento retorna o índice raiz."""
     return _get_index_impl(id)
 
 

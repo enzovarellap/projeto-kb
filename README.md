@@ -11,18 +11,25 @@ Origem (Google Drive)  →  Bundle OKF (kb/)  →  MCP server (server.py)
 ```
 
 - **Bundle OKF:** pasta de markdown com YAML frontmatter. Versionado neste repo.
-- **MCP server:** expõe 6 tools via `streamable-http` em `127.0.0.1:8000`:
-  - `search(query, limit, offset)` — busca multi-termo com relevância e normalização de acentos.
-    Retorna `{"results": [...]}` com `id`, `type`, `title`, `description`, e os campos
-    `text` (snippet) e `url` (`kb://<id>`) exigidos pelo contrato de busca do ChatGPT
-    Deep Research (ver [ChatGPT](#chatgpt-mcp-direto-via-developer-mode--apps))
-  - `semantic_search(query, limit)` — busca por similaridade vetorial (ChromaDB + embeddings)
-  - `fetch(id)` — conceito completo com outgoing_links resolvidos; inclui também `text`
-    (mesmo conteúdo de `body`), `url` (`kb://<id>`) e `metadata`
-    (type/tags/timestamp/resource), compatível com o `Document` do Deep Research
-  - `list_topics()` — árvore de navegação (índices + filhos)
-  - `get_log(last_n)` — histórico de mudanças do bundle
-  - `get_stats()` — estatísticas: total, por tipo, pastas, último timestamp
+- **MCP server:** expõe 7 tools somente-leitura (`readOnlyHint=True`) via `streamable-http`
+  em `127.0.0.1:8000`. Fluxo recomendado (ver `instructions` do servidor e docstring de
+  cada tool em `server.py` — é isso que a IA cliente lê para decidir qual chamar):
+  1. Sem saber o que procurar → `list_topics()` (árvore completa) ou `get_index(id)` (detalhe
+     de uma seção) para se orientar.
+  2. Sabe os termos exatos → `search(query, limit, offset)` primeiro: busca multi-termo (AND)
+     com relevância, normalização de acentos e fuzzy match para typos. Retorna
+     `{"results": [...]}` com `id`, `type`, `title`, `description`, `text` (snippet) e
+     `url` (`kb://<id>`) — contrato exigido pelo ChatGPT Deep Research (ver
+     [ChatGPT](#chatgpt-mcp-direto-via-developer-mode--apps)).
+  3. `search` não achou nada, ou a pergunta é conceitual/parafraseada → `semantic_search(query,
+     limit)`: busca por similaridade vetorial (ChromaDB + embeddings), com fallback automático
+     para `search` se o índice não estiver disponível.
+  4. Sempre que tiver um `id` e for responder com conteúdo → `fetch(id)`: único tool que
+     retorna o corpo completo do conceito, com `outgoing_links` resolvidos para continuar
+     navegando o grafo; inclui também `text`, `url` e `metadata`, compatível com o `Document`
+     do Deep Research.
+  5. `get_log(last_n)` — histórico de mudanças do bundle (o que mudou recentemente).
+  6. `get_stats()` — estatísticas agregadas: total, por tipo, pastas, último timestamp.
 - **Ingestão:** `ingest.py` converte arquivos locais (PDF, DOCX, etc.) em conceitos OKF.
 
 ## Instalação
