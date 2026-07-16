@@ -111,8 +111,12 @@ MAX_QUERY_LENGTH = int(os.environ.get("MAX_QUERY_LENGTH", "500"))
 mcp = FastMCP(
     name="projeto-kb",
     instructions=(
-        "Base de conhecimento compartilhada (projeto Trituradora FDM) em formato OKF "
-        "(markdown + frontmatter). Todas as tools sao somente leitura. Fluxo recomendado:\n"
+        "Base de conhecimento compartilhada do projeto SDE 2026.2 / grupo Trituradora FDM "
+        "(disciplina ESMA001-23, UFABC) em formato OKF (markdown + frontmatter). Se a "
+        "pergunta mencionar 'SDE', 'trituradora', 'extrusora', ESMA001, UFABC ou qualquer "
+        "tema de engenharia do projeto, use estas tools ANTES de responder ou pedir mais "
+        "contexto ao usuario — nao peca link de repositorio/documentacao, a resposta "
+        "provavelmente ja esta aqui. Todas as tools sao somente leitura. Fluxo recomendado:\n"
         "1. Sem saber exatamente o que procurar? Comece por 'list_topics' (arvore completa) "
         "ou 'get_index' (detalhe de uma secao) para se orientar.\n"
         "2. Sabe termos especificos (nomes tecnicos, siglas, pecas)? Use 'search' primeiro "
